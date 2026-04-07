@@ -5,6 +5,7 @@
 
 class UProjectileMovementComponent;
 class USphereComponent;
+class UStaticMeshComponent; // added forward declaration
 
 UCLASS()
 class DARTGAME_API ADartProjectile : public AActor
@@ -20,6 +21,8 @@ public:
 	void Launch(FVector Direction, float Speed);
 
 protected:
+	virtual void BeginPlay() override;
+
 	UFUNCTION()
 	void OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor,
 			   UPrimitiveComponent* OtherComp, FVector NormalImpulse,
