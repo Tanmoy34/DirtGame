@@ -110,55 +110,20 @@ int32 ADartboard::RegisterHit(const FVector& ImpactPoint, ADartProjectile* Dart)
 
 	PrintHitResult(Points, Dist, OwnerController);
 
-	// ── 4. Award the score — credit the actual throwing player (server) ────────
-	// Find the owning pawn/character and call its handler so RoundScore/PlayerScore
-	// and LastScoredPoints live on the character (replicated per-player).
-	if (Dart && Dart->GetOwner())
+	// ── 4. AWARD THE SCORE: route to GameMode (single authoritative path) ─────
+	// Do NOT credit the character directly here — call GameMode::RegisterThrow so
+	// the GameMode can perform turn logic and give points exactly once.
+	if (ADartGameMode* GM = Cast<ADartGameMode>(UGameplayStatics::GetGameMode(this)))
 	{
-		if (APawn* OwnerPawn = Cast<APawn>(Dart->GetOwner()))
+		if (OwnerController)
 		{
-			if (ADartCharacter* OwnerChar = Cast<ADartCharacter>(OwnerPawn))
-			{
-				// Prefer calling AddPoints which routes to server logic if needed.
-				// RegisterHit runs on the server so this will simply execute.
-				OwnerChar->AddPoints(Points);
-
-				// Optional: for board-side UI we can reflect the player's total.
-				LastScore = OwnerChar->GetPlayerScore();
-
-				UE_LOG(LogTemp, Warning,
-					TEXT("[Dartboard] Awarded %d pts to player (char %s). New total: %d"),
-					Points, *OwnerChar->GetName(), LastScore);
-
-				// Notify GameMode that this player's dart has resolved (so it can
-				// update turn state / advance to next player when needed).
-				if (ADartGameMode* GM = Cast<ADartGameMode>(UGameplayStatics::GetGameMode(this)))
-				{
-					// use the OwnerController variable declared earlier instead of
-					// declaring a new local variable (avoids name hiding)
-					if (OwnerController)
-					{
-						GM->RegisterThrow(Cast<APlayerController>(OwnerController), Points);
-					}
-				}
-			}
+			GM->RegisterThrow(Cast<APlayerController>(OwnerController), Points);
 		}
 	}
-	else
-	{
-		// Fallback: if we couldn't resolve an owner, you can still record via GameMode.
-		// (Left commented so it doesn't silently credit player 0 anymore.)
-		// if (ADartGameMode* GM = Cast<ADartGameMode>(UGameplayStatics::GetGameMode(this)))
-		// {
-		//     GM->AddScore(0, Points);
-		// }
-	}
 
-	// -------------------------------------------------------------------------
-	// Aggregate into LastScore (cumulative for the board) removed in favor of
-	// per-player totals handled on ADartCharacter. We still call the Blueprint
-	// notify so any board-side UI can update if desired.
-	// -------------------------------------------------------------------------
+	// Update board-side "last hit" value (single-hit points only). Per-player
+	// totals live on ADartCharacter, not on the board.
+	LastScore = Points;
 
 	// Notify any Blueprint listeners so widgets can update immediately.
 	BP_OnLastScoreUpdated(LastScore);

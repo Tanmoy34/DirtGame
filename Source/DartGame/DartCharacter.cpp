@@ -525,6 +525,20 @@ void ADartCharacter::Server_AddRoundScore(int32 Points)
     // This must only run on the server; GameMode already guarantees that.
     check(HasAuthority());
 
+    // Safety: clamp incoming points to a reasonable per-hit range to avoid runaway totals
+    // caused by bugs or duplicated notifications. Adjust max per your game rules.
+    if (Points < 0)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[DartCharacter] Negative points received: %d. Clamping to 0."), Points);
+        Points = 0;
+    }
+    const int32 MaxPerHit = 100;
+    if (Points > MaxPerHit)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[DartCharacter] Excessive points received: %d. Clamping to %d."), Points, MaxPerHit);
+        Points = MaxPerHit;
+    }
+
     // Record last-scored points on the character (replicated to clients)
     LastScoredPoints = Points;
 
@@ -545,8 +559,6 @@ void ADartCharacter::Server_AddRoundScore(int32 Points)
     BP_OnLastScoredUpdated(LastScoredPoints);
 
     // If the player just threw their last dart, reset RoundScore for next round.
-    // DartsRemaining has already been decremented before this call (in Throw()),
-    // so 0 means all darts in this round are spent.
     if (DartsRemaining <= 0)
     {
         UE_LOG(LogTemp, Log,
