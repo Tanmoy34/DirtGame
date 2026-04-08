@@ -4,46 +4,58 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "Engine/Engine.h"   // GEngine->AddOnScreenDebugMessage
+#include "Math/UnrealMathUtility.h"
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Constructor
+// ─────────────────────────────────────────────────────────────────────────────
 
 ADartCharacter::ADartCharacter()
 {
     bReplicates = true;
     PrimaryActorTick.bCanEverTick = false;
 
-    // --- Spring Arm ---
+    // Spring Arm
     SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
     SpringArm->SetupAttachment(RootComponent);
-    SpringArm->TargetArmLength = 300.f;
+    SpringArm->TargetArmLength        = 300.f;
     SpringArm->bUsePawnControlRotation = true;
     SpringArm->SetRelativeLocation(FVector(0.f, 0.f, 60.f));
 
-    // --- Camera ---
+    // Camera
     Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
     Camera->SetupAttachment(SpringArm, USpringArmComponent::SocketName);
     Camera->bUsePawnControlRotation = false;
 
-    // --- Movement Settings ---
+    // Movement
     GetCharacterMovement()->bOrientRotationToMovement = true;
-    GetCharacterMovement()->RotationRate = FRotator(0.f, 500.f, 0.f);
-    GetCharacterMovement()->MaxWalkSpeed = 400.f;
-    GetCharacterMovement()->JumpZVelocity = 500.f;
+    GetCharacterMovement()->RotationRate              = FRotator(0.f, 500.f, 0.f);
+    GetCharacterMovement()->MaxWalkSpeed              = 400.f;
+    GetCharacterMovement()->JumpZVelocity             = 500.f;
 
     bUseControllerRotationYaw   = false;
     bUseControllerRotationPitch = false;
     bUseControllerRotationRoll  = false;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// BeginPlay
+// ─────────────────────────────────────────────────────────────────────────────
+
 void ADartCharacter::BeginPlay()
 {
     Super::BeginPlay();
 
-    // Print initial dart count for the local player only
     if (IsLocallyControlled())
     {
         GEngine->AddOnScreenDebugMessage(1, 5.f, FColor::Cyan,
             FString::Printf(TEXT("Darts Remaining: %d"), DartsRemaining));
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Input
+// ─────────────────────────────────────────────────────────────────────────────
 
 void ADartCharacter::SetupPlayerInputComponent(UInputComponent* Input)
 {
@@ -62,15 +74,15 @@ void ADartCharacter::SetupPlayerInputComponent(UInputComponent* Input)
     Input->BindAction("Aim", IE_Released, this, &ADartCharacter::Throw);
 }
 
-// -----------------------------------------------------------------------
-// Movement
-// -----------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
+// Movement helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
 void ADartCharacter::MoveForward(float Value)
 {
     if (Controller && Value != 0.f)
     {
-        const FRotator Rot = FRotator(0.f, Controller->GetControlRotation().Yaw, 0.f);
+        const FRotator Rot(0.f, Controller->GetControlRotation().Yaw, 0.f);
         AddMovementInput(FRotationMatrix(Rot).GetUnitAxis(EAxis::X), Value);
     }
 }
@@ -79,21 +91,20 @@ void ADartCharacter::MoveRight(float Value)
 {
     if (Controller && Value != 0.f)
     {
-        const FRotator Rot = FRotator(0.f, Controller->GetControlRotation().Yaw, 0.f);
+        const FRotator Rot(0.f, Controller->GetControlRotation().Yaw, 0.f);
         AddMovementInput(FRotationMatrix(Rot).GetUnitAxis(EAxis::Y), Value);
     }
 }
 
-void ADartCharacter::Turn(float Value)   { AddControllerYawInput(Value); }
-void ADartCharacter::LookUp(float Value) { AddControllerPitchInput(Value); }
+void ADartCharacter::Turn   (float Value) { AddControllerYawInput(Value);   }
+void ADartCharacter::LookUp (float Value) { AddControllerPitchInput(Value); }
 
-// -----------------------------------------------------------------------
-// Throwing
-// -----------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
+// Aim start
+// ─────────────────────────────────────────────────────────────────────────────
 
 void ADartCharacter::StartAim()
 {
-    // Don't start aiming if no darts remain
     if (DartsRemaining <= 0)
     {
         if (IsLocallyControlled())
@@ -113,16 +124,19 @@ void ADartCharacter::StartAim()
             FString::Printf(TEXT("Aim timer: %d"), AimCountdown));
     }
 
-    // Fire AimTick every 1 second
     GetWorldTimerManager().SetTimer(
         AimTimerHandle,
         this,
         &ADartCharacter::AimTick,
         1.f,   // interval
         true,  // looping
-        1.f    // first fire after 1 second
+        1.f    // first fire delay
     );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Aim tick (every second while aiming)
+// ─────────────────────────────────────────────────────────────────────────────
 
 void ADartCharacter::AimTick()
 {
@@ -136,27 +150,23 @@ void ADartCharacter::AimTick()
             FString::Printf(TEXT("Aim timer: %d"), AimCountdown));
     }
 
-    // Time is up — forfeit the dart
     if (AimCountdown <= 0)
     {
         ClearAimTimer();
         bIsAiming = false;
 
-        if (DartsRemaining > 0)
-        {
-            --DartsRemaining;
-        }
+        if (DartsRemaining > 0) { --DartsRemaining; }
 
         if (IsLocallyControlled())
         {
             GEngine->AddOnScreenDebugMessage(2, 4.f, FColor::Orange,
                 TEXT("DART FORFEITED — ran out of time!"));
-
             GEngine->AddOnScreenDebugMessage(1, 5.f, FColor::Cyan,
                 FString::Printf(TEXT("Darts Remaining: %d"), DartsRemaining));
         }
 
-        UE_LOG(LogTemp, Warning, TEXT("Dart forfeited — timer expired. Darts left: %d"), DartsRemaining);
+        UE_LOG(LogTemp, Warning,
+               TEXT("Dart forfeited — timer expired. Darts left: %d"), DartsRemaining);
     }
 }
 
@@ -165,24 +175,28 @@ void ADartCharacter::ClearAimTimer()
     GetWorldTimerManager().ClearTimer(AimTimerHandle);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Throw  (local client)
+// ─────────────────────────────────────────────────────────────────────────────
+
 void ADartCharacter::Throw()
 {
     if (!bIsAiming) return;
     bIsAiming = false;
 
-    // Cancel the forfeit timer since the player threw in time
     ClearAimTimer();
     AimCountdown = 0;
 
     if (DartsRemaining <= 0)
     {
-        UE_LOG(LogTemp, Warning, TEXT("Throw() called but no darts remaining"));
+        UE_LOG(LogTemp, Warning, TEXT("Throw() — no darts remaining"));
         return;
     }
 
     if (!ProjectileClass)
     {
-        UE_LOG(LogTemp, Error, TEXT("ProjectileClass is NULL — assign BP_DartProjectile in defaults!"));
+        UE_LOG(LogTemp, Error,
+               TEXT("ProjectileClass is NULL — assign BP_DartProjectile in defaults!"));
         return;
     }
 
@@ -194,44 +208,145 @@ void ADartCharacter::Throw()
             FString::Printf(TEXT("Darts Remaining: %d"), DartsRemaining));
     }
 
-    UE_LOG(LogTemp, Warning, TEXT("Throw() called — Darts left: %d"), DartsRemaining);
+    // Capture the widget accuracy value at the moment the button is released.
+    // TimingAccuracy is BlueprintReadWrite so the widget sets it every frame
+    // while the ping-pong animation runs.
+    const float CapturedAccuracy = FMath::Clamp(TimingAccuracy, 0.f, 1.f);
 
-    FVector Origin    = Camera->GetComponentLocation() + Camera->GetForwardVector() * 50.f;
-    FVector Direction = Camera->GetForwardVector();
-    float   Speed     = MaxThrowSpeed * FMath::Max(TimingAccuracy, 0.3f);
+    const FVector Origin    = Camera->GetComponentLocation()
+                            + Camera->GetForwardVector() * 50.f;
+    const FVector Direction = Camera->GetForwardVector();
+    const float   Speed     = MaxThrowSpeed * FMath::Max(CapturedAccuracy, 0.3f);
 
-    Server_Throw(Origin, Direction, Speed);
+    UE_LOG(LogTemp, Warning,
+           TEXT("Throw() → Server_Throw | Accuracy=%.3f | Speed=%.1f"),
+           CapturedAccuracy, Speed);
+
+    // Send raw camera direction + accuracy to server.
+    // The SERVER applies the deflection so the result is authoritative and
+    // replicates identically to every client.
+    Server_Throw(Origin, Direction, Speed, CapturedAccuracy);
 }
 
-void ADartCharacter::Server_Throw_Implementation(FVector Origin, FVector Direction, float Speed)
+// ─────────────────────────────────────────────────────────────────────────────
+// Server_Throw  (runs on server only)
+// ─────────────────────────────────────────────────────────────────────────────
+
+void ADartCharacter::Server_Throw_Implementation(
+    FVector Origin, FVector Direction, float Speed, float Accuracy)
 {
-    UE_LOG(LogTemp, Warning, TEXT("Server_Throw_Implementation fired"));
+    UE_LOG(LogTemp, Warning,
+           TEXT("[Server] Server_Throw received | Accuracy=%.3f"), Accuracy);
 
     if (!ProjectileClass)
     {
-        UE_LOG(LogTemp, Error, TEXT("Server: ProjectileClass is NULL"));
+        UE_LOG(LogTemp, Error, TEXT("[Server] ProjectileClass is NULL"));
         return;
     }
+
+    // ── 1. Calculate inaccuracy ─────────────────────────────────────────────
+    //
+    //   Inaccuracy  = 1 - Accuracy   (0 = perfect, 1 = worst)
+    //   DeviationDeg = Inaccuracy * MaxInaccuracyAngle
+    //
+    //   We then pick a random direction within a cone of that half-angle around
+    //   the intended Direction.  FMath::VRandCone gives us exactly that: a unit
+    //   vector uniformly distributed inside a cone of the given half-angle.
+    //
+    //   This is all done on the server so the seed is authoritative; clients
+    //   never compute a competing direction.
+
+    const float Inaccuracy   = 1.f - Accuracy;                        // 0–1
+    const float DeviationDeg = Inaccuracy * MaxInaccuracyAngle;       // 0–MaxAngle
+    const float DeviationRad = FMath::DegreesToRadians(DeviationDeg);
+
+    FVector FinalDirection;
+    if (DeviationRad > SMALL_NUMBER)
+    {
+        // VRandCone: returns a unit vector within a cone of HalfAngleRad around
+        // the Dir axis, using the server's authoritative RNG stream.
+        FinalDirection = FMath::VRandCone(Direction, DeviationRad);
+    }
+    else
+    {
+        // Perfect accuracy — no deviation at all
+        FinalDirection = Direction;
+    }
+    FinalDirection.Normalize();
+
+    // ── 2. Spawn & launch the dart ───────────────────────────────────────────
 
     FActorSpawnParameters Params;
     Params.Owner      = this;
     Params.Instigator = GetInstigator();
-    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    Params.SpawnCollisionHandlingOverride =
+        ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
     ADartProjectile* Dart = GetWorld()->SpawnActor<ADartProjectile>(
         ProjectileClass,
         Origin,
-        Direction.Rotation(),
+        FinalDirection.Rotation(),
         Params
     );
 
     if (Dart)
     {
-        UE_LOG(LogTemp, Warning, TEXT("Dart spawned successfully!"));
-        Dart->Launch(Direction, Speed);
+        Dart->Launch(FinalDirection, Speed);
+        UE_LOG(LogTemp, Warning,
+               TEXT("[Server] Dart launched | FinalDir=%s | Deviation=%.2f°"),
+               *FinalDirection.ToString(), DeviationDeg);
     }
     else
     {
-        UE_LOG(LogTemp, Error, TEXT("SpawnActor returned NULL — likely a collision block at spawn point"));
+        UE_LOG(LogTemp, Error,
+               TEXT("[Server] SpawnActor returned NULL"));
     }
+
+    // ── 3. Send diagnostic values back to the owning client for display ──────
+    //
+    //   We do NOT call GEngine here because Server_Throw runs on the server
+    //   process; on a dedicated server there is no viewport.  Sending a Client
+    //   RPC guarantees the message appears on the correct player's screen.
+
+    Client_PrintThrowDiagnostics(Accuracy, Inaccuracy, DeviationDeg);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Client_PrintThrowDiagnostics  (runs on owning client)
+// ─────────────────────────────────────────────────────────────────────────────
+
+void ADartCharacter::Client_PrintThrowDiagnostics_Implementation(
+    float Accuracy, float Inaccuracy, float DeviationDeg)
+{
+    // Slot 4 — accuracy line (overwrites previous throw's value)
+    GEngine->AddOnScreenDebugMessage(4, 6.f, FColor::Green,
+        FString::Printf(
+            TEXT("Throw Accuracy : %.0f%%  (raw %.3f)"),
+            Accuracy * 100.f, Accuracy
+        ));
+
+    // Slot 5 — inaccuracy / deviation line
+    if (DeviationDeg < 0.1f)
+    {
+        GEngine->AddOnScreenDebugMessage(5, 6.f, FColor::Green,
+            TEXT("Inaccuracy     : 0.00°  — PERFECT THROW!"));
+    }
+    else
+    {
+        // Colour grades: green < 5°, yellow 5–10°, red > 10°
+        const FColor DeviationColor =
+            (DeviationDeg < 5.f)  ? FColor::Green  :
+            (DeviationDeg < 10.f) ? FColor::Yellow :
+                                    FColor::Red;
+
+        GEngine->AddOnScreenDebugMessage(5, 6.f, DeviationColor,
+            FString::Printf(
+                TEXT("Inaccuracy     : %.2f°  (factor %.3f)"),
+                DeviationDeg, Inaccuracy
+            ));
+    }
+
+    UE_LOG(LogTemp, Warning,
+           TEXT("[Client] Throw diagnostics | Accuracy=%.3f | Inaccuracy=%.3f | Deviation=%.2f°"),
+           Accuracy, Inaccuracy, DeviationDeg);
 }
