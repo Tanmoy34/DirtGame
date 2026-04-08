@@ -111,22 +111,19 @@ int32 ADartboard::RegisterHit(const FVector& ImpactPoint, ADartProjectile* Dart)
 	PrintHitResult(Points, Dist, OwnerController);
 
 	// ── 4. Award the score — credit the actual throwing player (server) ────────
-	// Find the owning pawn/character and call its server-side handler to update
-	// RoundScore/PlayerScore (these properties are replicated on the character).
+	// Find the owning pawn/character and call its handler so RoundScore/PlayerScore
+	// and LastScoredPoints live on the character (replicated per-player).
 	if (Dart && Dart->GetOwner())
 	{
 		if (APawn* OwnerPawn = Cast<APawn>(Dart->GetOwner()))
 		{
 			if (ADartCharacter* OwnerChar = Cast<ADartCharacter>(OwnerPawn))
 			{
-				// This runs on the server (RegisterHit is server-authoritative).
-				// Server_AddRoundScore updates PlayerScore and RoundScore and will
-				// replicate those values to the owning client's HUD.
-				OwnerChar->Server_AddRoundScore(Points);
+				// Prefer calling AddPoints which routes to server logic if needed.
+				// RegisterHit runs on the server so this will simply execute.
+				OwnerChar->AddPoints(Points);
 
-				// Optional: update the board's LastScore to reflect that player's
-				// current total (convenience for server-side Blueprints). The
-				// authoritative per-player total is on the character (PlayerScore).
+				// Optional: for board-side UI we can reflect the player's total.
 				LastScore = OwnerChar->GetPlayerScore();
 
 				UE_LOG(LogTemp, Warning,

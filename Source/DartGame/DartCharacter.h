@@ -145,4 +145,27 @@ public:
      *  Bind this in WBP_DartHUD to refresh the round-score text block. */
     UFUNCTION(BlueprintImplementableEvent, Category = "HUD")
     void BP_OnRoundScoreUpdated(int32 NewRoundScore);
+
+    // ---- New: Last-scored points (replicated per-player) --------------------
+    // LastScoredPoints: the points scored by the player's most recent hit.
+    UPROPERTY(ReplicatedUsing = OnRep_LastScoredPoints, BlueprintReadOnly, Category = "Darts")
+    int32 LastScoredPoints = 0;
+
+    // Called when LastScoredPoints replicates to clients
+    UFUNCTION()
+    void OnRep_LastScoredPoints();
+
+    // Notify Blueprints when last scored points change
+    UFUNCTION(BlueprintImplementableEvent, Category = "HUD")
+    void BP_OnLastScoredUpdated(int32 NewLastPoints);
+
+    // Blueprint-callable helper so Blueprints/Board can credit this player.
+    // If called on client it will route to the server via Server_RequestAddPoints.
+    UFUNCTION(BlueprintCallable, Category = "Dart")
+    void AddPoints(int32 Points);
+
+    // RPC: client -> server request to add points (if AddPoints was called on client)
+    UFUNCTION(Server, Reliable)
+    void Server_RequestAddPoints(int32 Points);
 };
+

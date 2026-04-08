@@ -55,6 +55,9 @@ void ADartCharacter::BeginPlay()
         BP_OnPlayerScoreUpdated(PlayerScore);
         BP_OnRoundScoreUpdated(RoundScore);
 
+        // New: ensure widget sees the last scored points value at start
+        BP_OnLastScoredUpdated(LastScoredPoints);
+
         GEngine->AddOnScreenDebugMessage(1, 5.f, FColor::Cyan,
             FString::Printf(TEXT("Darts Remaining: %d"), DartsRemaining));
     }
@@ -372,6 +375,27 @@ void ADartCharacter::Server_ConsumeDart_Implementation()
     BP_OnDartsRemainingUpdated(DartsRemaining);
 }
 
+// New: AddPoints public helper
+void ADartCharacter::AddPoints(int32 Points)
+{
+    if (HasAuthority())
+    {
+        // We're on the server already; apply immediately.
+        Server_AddRoundScore(Points);
+    }
+    else
+    {
+        // Client: request server to add the points.
+        Server_RequestAddPoints(Points);
+    }
+}
+
+void ADartCharacter::Server_RequestAddPoints_Implementation(int32 Points)
+{
+    // Server validates / applies
+    Server_AddRoundScore(Points);
+}
+
 // OnRep handlers — call Blueprint events so UMG updates
 void ADartCharacter::OnRep_DartsRemaining()
 {
@@ -406,6 +430,18 @@ void ADartCharacter::OnRep_RoundScore()
     }
 }
 
+// New: replica notify for LastScoredPoints
+void ADartCharacter::OnRep_LastScoredPoints()
+{
+    BP_OnLastScoredUpdated(LastScoredPoints);
+
+    if (IsLocallyControlled())
+    {
+        GEngine->AddOnScreenDebugMessage(8, 3.f, FColor::Orange,
+            FString::Printf(TEXT("Last Hit Points (replicated): %d"), LastScoredPoints));
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Server_AddRoundScore  (server only — called by DartGameMode::AddScore)
 //
@@ -421,6 +457,9 @@ void ADartCharacter::Server_AddRoundScore(int32 Points)
     // This must only run on the server; GameMode already guarantees that.
     check(HasAuthority());
 
+    // Record last-scored points on the character (replicated to clients)
+    LastScoredPoints = Points;
+
     // Accumulate into round total
     RoundScore  += Points;
 
@@ -435,6 +474,7 @@ void ADartCharacter::Server_AddRoundScore(int32 Points)
     // so server-side widgets (listen-server host) also update.
     BP_OnRoundScoreUpdated(RoundScore);
     BP_OnPlayerScoreUpdated(PlayerScore);
+    BP_OnLastScoredUpdated(LastScoredPoints);
 
     // If the player just threw their last dart, reset RoundScore for next round.
     // DartsRemaining has already been decremented before this call (in Throw()),
@@ -459,4 +499,5 @@ void ADartCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
     DOREPLIFETIME(ADartCharacter, DartsRemaining);
     DOREPLIFETIME(ADartCharacter, PlayerScore);
     DOREPLIFETIME(ADartCharacter, RoundScore);
+    DOREPLIFETIME(ADartCharacter, LastScoredPoints); // new
 }
