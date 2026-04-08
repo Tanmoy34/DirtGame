@@ -13,7 +13,9 @@ public:
 	ADartboard();
 
 	// Called when a dart hits — calculates score from impact point
-	void RegisterHit(FVector ImpactPoint, ADartProjectile* Dart);
+	// (now exposed to Blueprint and returns the points for the hit)
+	UFUNCTION(BlueprintCallable, Category="Dart|Scoring")
+	int32 RegisterHit(const FVector& ImpactPoint, ADartProjectile* Dart);
 
 	// ── Scoring Zone Radii (edit these in Blueprint to match your mesh) ──────
 	//
@@ -52,4 +54,13 @@ private:
 
 	// Prints the hit result to the owning player's screen (server-side helper).
 	void PrintHitResult(int32 Points, float Dist, AController* OwnerController) const;
+
+public:
+	// Cumulative score tracked by the board (exposed to Blueprint).
+	UPROPERTY(BlueprintReadOnly, Category="Dart|Scoring")
+	int32 LastScore = 0;
+
+	// Blueprint hook called whenever LastScore is updated (total after the hit).
+	UFUNCTION(BlueprintImplementableEvent, Category="Dart|Scoring")
+	void BP_OnLastScoreUpdated(int32 NewTotal);
 };

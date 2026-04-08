@@ -4,6 +4,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Engine/Engine.h"           // GEngine->AddOnScreenDebugMessage
 #include "GameFramework/PlayerController.h"
+#include "DartCharacter.h"           // << added to update the throwing character's score
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constructor
@@ -13,6 +14,8 @@ ADartboard::ADartboard()
 {
 	BoardMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Board"));
 	RootComponent = BoardMesh;
+
+	LastScore = 0;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -81,31 +84,21 @@ void ADartboard::PrintHitResult(int32 Points, float Dist, AController* OwnerCont
 // RegisterHit  (server authoritative)
 // ─────────────────────────────────────────────────────────────────────────────
 
-void ADartboard::RegisterHit(FVector ImpactPoint, ADartProjectile* Dart)
+int32 ADartboard::RegisterHit(const FVector& ImpactPoint, ADartProjectile* Dart)
 {
 	// Only the server should award points and print results.
-	if (!HasAuthority()) return;
+	if (!HasAuthority()) return 0;
 
 	// ── 1. Convert world-space impact to board-local space ───────────────────
-	//
-	//  The dartboard's local X axis is its forward (normal facing the player).
-	//  The scoring plane is therefore the board's local YZ plane.
-	//  We project onto Y and Z to get the 2-D radial distance from the centre.
-
 	const FVector LocalHit = GetTransform().InverseTransformPosition(ImpactPoint);
 
 	// Use Y and Z — the two axes in the board's face plane.
 	const float Dist = FVector2D(LocalHit.Y, LocalHit.Z).Size();
 
 	// ── 2. Map distance → points ─────────────────────────────────────────────
-
 	const int32 Points = CalculatePoints(Dist);
 
 	// ── 3. Print to screen ───────────────────────────────────────────────────
-	//
-	//  We pass the Dart's owner controller so future Client-RPC work is easy,
-	//  but for now we just call GEngine on the server.
-
 	AController* OwnerController = nullptr;
 	if (Dart && Dart->GetOwner())
 	{
@@ -117,16 +110,56 @@ void ADartboard::RegisterHit(FVector ImpactPoint, ADartProjectile* Dart)
 
 	PrintHitResult(Points, Dist, OwnerController);
 
-	// ── 4. Award the score via Game Mode ────────────────────────────────────
-	//
-	//  TODO: resolve proper player index from Dart->GetOwner() / OwnerController.
-	//  Keeping index 0 for now (single-player or host in listen-server).
-
-	if (ADartGameMode* GM = Cast<ADartGameMode>(UGameplayStatics::GetGameMode(this)))
+	// ── 4. Award the score — credit the actual throwing player (server) ────────
+	// Find the owning pawn/character and call its server-side handler to update
+	// RoundScore/PlayerScore (these properties are replicated on the character).
+	if (Dart && Dart->GetOwner())
 	{
-		GM->AddScore(0, Points);
+		if (APawn* OwnerPawn = Cast<APawn>(Dart->GetOwner()))
+		{
+			if (ADartCharacter* OwnerChar = Cast<ADartCharacter>(OwnerPawn))
+			{
+				// This runs on the server (RegisterHit is server-authoritative).
+				// Server_AddRoundScore updates PlayerScore and RoundScore and will
+				// replicate those values to the owning client's HUD.
+				OwnerChar->Server_AddRoundScore(Points);
 
-		UE_LOG(LogTemp, Warning,
-			TEXT("[Dartboard] Score awarded: %d pts → player 0 (placeholder index)"), Points);
+				// Optional: update the board's LastScore to reflect that player's
+				// current total (convenience for server-side Blueprints). The
+				// authoritative per-player total is on the character (PlayerScore).
+				LastScore = OwnerChar->GetPlayerScore();
+
+				UE_LOG(LogTemp, Warning,
+					TEXT("[Dartboard] Awarded %d pts to player (char %s). New total: %d"),
+					Points, *OwnerChar->GetName(), LastScore);
+			}
+		}
 	}
+	else
+	{
+		// Fallback: if we couldn't resolve an owner, you can still record via GameMode.
+		// (Left commented so it doesn't silently credit player 0 anymore.)
+		// if (ADartGameMode* GM = Cast<ADartGameMode>(UGameplayStatics::GetGameMode(this)))
+		// {
+		//     GM->AddScore(0, Points);
+		// }
+	}
+
+	// -------------------------------------------------------------------------
+	// Aggregate into LastScore (cumulative for the board) removed in favor of
+	// per-player totals handled on ADartCharacter. We still call the Blueprint
+	// notify so any board-side UI can update if desired.
+	// -------------------------------------------------------------------------
+
+	// Notify any Blueprint listeners so widgets can update immediately.
+	BP_OnLastScoreUpdated(LastScore);
+
+	// Debug log (optional)
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Green,
+			FString::Printf(TEXT("Board: hit points=%d  reported total=%d"), Points, LastScore));
+	}
+
+	return Points;
 }

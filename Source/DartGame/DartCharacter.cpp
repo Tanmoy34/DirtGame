@@ -53,6 +53,7 @@ void ADartCharacter::BeginPlay()
         // Fire Blueprint events so the widget can initialize
         BP_OnDartsRemainingUpdated(DartsRemaining);
         BP_OnPlayerScoreUpdated(PlayerScore);
+        BP_OnRoundScoreUpdated(RoundScore);
 
         GEngine->AddOnScreenDebugMessage(1, 5.f, FColor::Cyan,
             FString::Printf(TEXT("Darts Remaining: %d"), DartsRemaining));
@@ -394,6 +395,62 @@ void ADartCharacter::OnRep_PlayerScore()
     }
 }
 
+void ADartCharacter::OnRep_RoundScore()
+{
+    BP_OnRoundScoreUpdated(RoundScore);
+
+    if (IsLocallyControlled())
+    {
+        GEngine->AddOnScreenDebugMessage(7, 3.f, FColor::Yellow,
+            FString::Printf(TEXT("Round Score (replicated): %d"), RoundScore));
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Server_AddRoundScore  (server only — called by DartGameMode::AddScore)
+//
+//  1. Accumulates Points into RoundScore (this round's running total).
+//  2. Also adds to PlayerScore (career/session total).
+//  3. When all 3 darts are used (DartsRemaining == 0), the round is over:
+//     RoundScore is reset to 0 ready for the next round.
+//     (DartsRemaining itself is reset by AdvanceTurn inside GameMode.)
+// ─────────────────────────────────────────────────────────────────────────────
+
+void ADartCharacter::Server_AddRoundScore(int32 Points)
+{
+    // This must only run on the server; GameMode already guarantees that.
+    check(HasAuthority());
+
+    // Accumulate into round total
+    RoundScore  += Points;
+
+    // Also keep the lifetime score in sync
+    PlayerScore += Points;
+
+    UE_LOG(LogTemp, Log,
+        TEXT("[DartCharacter] RoundScore=%d | PlayerScore=%d (added %d pts)"),
+        RoundScore, PlayerScore, Points);
+
+    // OnRep won't fire on the server itself, so broadcast the BP event manually
+    // so server-side widgets (listen-server host) also update.
+    BP_OnRoundScoreUpdated(RoundScore);
+    BP_OnPlayerScoreUpdated(PlayerScore);
+
+    // If the player just threw their last dart, reset RoundScore for next round.
+    // DartsRemaining has already been decremented before this call (in Throw()),
+    // so 0 means all darts in this round are spent.
+    if (DartsRemaining <= 0)
+    {
+        UE_LOG(LogTemp, Log,
+            TEXT("[DartCharacter] Round complete — resetting RoundScore (was %d)"), RoundScore);
+
+        RoundScore = 0;
+
+        // Notify again so HUD shows 0 at the start of the next round
+        BP_OnRoundScoreUpdated(RoundScore);
+    }
+}
+
 // Replication registration
 void ADartCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
@@ -401,4 +458,5 @@ void ADartCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 
     DOREPLIFETIME(ADartCharacter, DartsRemaining);
     DOREPLIFETIME(ADartCharacter, PlayerScore);
+    DOREPLIFETIME(ADartCharacter, RoundScore);
 }

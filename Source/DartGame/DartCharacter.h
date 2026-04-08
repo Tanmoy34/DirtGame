@@ -43,7 +43,15 @@ public:
     int32 DartsRemaining = 3;   // default 3 darts
 
     UPROPERTY(ReplicatedUsing = OnRep_PlayerScore, BlueprintReadOnly, Category = "Darts")
-    int32 PlayerScore = 0;      // player's total score
+    int32 PlayerScore = 0;      // player's total score (all rounds combined)
+
+    /**
+     * Sum of points scored with the current set of 3 darts (this round only).
+     * Resets to 0 when a new round begins (DartsRemaining resets to 3).
+     * Replicated so WBP_DartHUD can bind to it on every client.
+     */
+    UPROPERTY(ReplicatedUsing = OnRep_RoundScore, BlueprintReadOnly, Category = "Darts")
+    int32 RoundScore = 0;
 
     /** Countdown seconds while aiming. Widget-bindable. */
     UPROPERTY(BlueprintReadOnly, Category="Dart")
@@ -56,9 +64,19 @@ public:
     UFUNCTION(BlueprintCallable, Category = "HUD")
     int32 GetPlayerScore() const { return PlayerScore; }
 
+    UFUNCTION(BlueprintCallable, Category = "HUD")
+    int32 GetRoundScore() const { return RoundScore; }
+
     // Server RPC to consume one dart (server-authoritative)
     UFUNCTION(Server, Reliable)
     void Server_ConsumeDart();
+
+    /**
+     * Called by DartGameMode (server) to add points to both RoundScore and
+     * PlayerScore, and to reset RoundScore when a new round begins.
+     * Must be called on the server — replication propagates to clients.
+     */
+    void Server_AddRoundScore(int32 Points);
 
 protected:
     virtual void BeginPlay() override;
@@ -71,6 +89,10 @@ protected:
     // Called when replicated PlayerScore updates on clients
     UFUNCTION()
     void OnRep_PlayerScore();
+
+    // Called when replicated RoundScore updates on clients
+    UFUNCTION()
+    void OnRep_RoundScore();
 
 private:
     // ── Components ──────────────────────────────────────────────────────────
@@ -118,4 +140,9 @@ public:
 
     UFUNCTION(BlueprintImplementableEvent, Category = "HUD")
     void BP_OnPlayerScoreUpdated(int32 NewScore);
+
+    /** Fires on every client (via OnRep) whenever RoundScore changes.
+     *  Bind this in WBP_DartHUD to refresh the round-score text block. */
+    UFUNCTION(BlueprintImplementableEvent, Category = "HUD")
+    void BP_OnRoundScoreUpdated(int32 NewRoundScore);
 };
