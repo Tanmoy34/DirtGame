@@ -62,6 +62,35 @@ void ADartCharacter::BeginPlay()
         GEngine->AddOnScreenDebugMessage(1, 5.f, FColor::Cyan,
             FString::Printf(TEXT("Darts Remaining: %d"), DartsRemaining));
     }
+
+    // ── Server-side: ensure the first-joined player gets the initial turn ──
+    // This avoids race conditions where PostLogin may run before the pawn is possessed.
+    if (HasAuthority())
+    {
+        if (AGameStateBase* GSBase = GetWorld() ? GetWorld()->GetGameState() : nullptr)
+        {
+            const int32 NumPlayers = GSBase->PlayerArray.Num();
+            if (NumPlayers == 1)
+            {
+                // Grant initial turn to the very first player (server-authoritative)
+                bIsMyTurn = true;
+
+                // For a listen-server host the local UI won't receive an OnRep,
+                // so call the Blueprint hook immediately so host HUD updates.
+                if (IsLocallyControlled())
+                {
+                    const int32 SlotIndex = 0; // first-player slot
+                    BP_OnTurnStarted(SlotIndex);
+
+                    GEngine->AddOnScreenDebugMessage(9, 5.f, FColor::Green,
+                        TEXT("YOUR TURN — aim and throw! (initial assignment)"));
+                }
+
+                UE_LOG(LogTemp, Log, TEXT("[DartCharacter] Assigned initial turn to %s (players=%d)"),
+                       *GetName(), NumPlayers);
+            }
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
