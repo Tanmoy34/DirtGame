@@ -78,7 +78,7 @@ public:
 
     // Server RPC to consume one dart (server-authoritative)
     UFUNCTION(Server, Reliable)
-    void Server_ConsumeDart();
+    void Server_ConsumeDart(bool bForfeit);
 
     /**
      * Called by DartGameMode (server) to add points to both RoundScore and

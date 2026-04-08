@@ -129,6 +129,18 @@ int32 ADartboard::RegisterHit(const FVector& ImpactPoint, ADartProjectile* Dart)
 				UE_LOG(LogTemp, Warning,
 					TEXT("[Dartboard] Awarded %d pts to player (char %s). New total: %d"),
 					Points, *OwnerChar->GetName(), LastScore);
+
+				// Notify GameMode that this player's dart has resolved (so it can
+				// update turn state / advance to next player when needed).
+				if (ADartGameMode* GM = Cast<ADartGameMode>(UGameplayStatics::GetGameMode(this)))
+				{
+					// use the OwnerController variable declared earlier instead of
+					// declaring a new local variable (avoids name hiding)
+					if (OwnerController)
+					{
+						GM->RegisterThrow(Cast<APlayerController>(OwnerController), Points);
+					}
+				}
 			}
 		}
 	}

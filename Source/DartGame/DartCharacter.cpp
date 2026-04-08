@@ -7,6 +7,10 @@
 #include "Engine/Engine.h"   // GEngine->AddOnScreenDebugMessage
 #include "Math/UnrealMathUtility.h"
 #include "Net/UnrealNetwork.h" // added for replication
+#include "Kismet/GameplayStatics.h" // added for GetGameMode()
+
+// Add the game mode header so ADartGameMode is visible to this translation unit.
+#include "DartGameMode.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constructor
@@ -207,18 +211,18 @@ void ADartCharacter::AimTick()
         ClearAimTimer();
         bIsAiming = false;
 
-        if (DartsRemaining > 0) { --DartsRemaining; }
+        // Request server to consume a dart as a FORFEIT (timeout)
+        Server_ConsumeDart(true);
 
         if (IsLocallyControlled())
         {
             GEngine->AddOnScreenDebugMessage(2, 4.f, FColor::Orange,
                 TEXT("DART FORFEITED — ran out of time!"));
-            GEngine->AddOnScreenDebugMessage(1, 5.f, FColor::Cyan,
-                FString::Printf(TEXT("Darts Remaining: %d"), DartsRemaining));
+            // Note: UI will update when server replicates DartsRemaining
         }
 
         UE_LOG(LogTemp, Warning,
-               TEXT("Dart forfeited — timer expired. Darts left: %d"), DartsRemaining);
+               TEXT("Dart forfeited — timer expired. Requesting server consume."));
     }
 }
 
@@ -259,12 +263,13 @@ void ADartCharacter::Throw()
         return;
     }
 
-    --DartsRemaining;
+    // Server-authoritative consume: ask server to consume one dart (not a forfeit)
+    Server_ConsumeDart(false);
 
     if (IsLocallyControlled())
     {
         GEngine->AddOnScreenDebugMessage(1, 5.f, FColor::Cyan,
-            FString::Printf(TEXT("Darts Remaining: %d"), DartsRemaining));
+            FString::Printf(TEXT("Darts Remaining: %d (pending server update)"), DartsRemaining));
     }
 
     // Capture the widget accuracy value at the moment the button is released.
@@ -282,8 +287,6 @@ void ADartCharacter::Throw()
            CapturedAccuracy, Speed);
 
     // Send raw camera direction + accuracy to server.
-    // The SERVER applies the deflection so the result is authoritative and
-    // replicates identically to every client.
     Server_Throw(Origin, Direction, Speed, CapturedAccuracy);
 }
 
@@ -411,17 +414,33 @@ void ADartCharacter::Client_PrintThrowDiagnostics_Implementation(
 }
 
 // Server RPC implementation: consume one dart (server-authoritative)
-void ADartCharacter::Server_ConsumeDart_Implementation()
+void ADartCharacter::Server_ConsumeDart_Implementation(bool bForfeit)
 {
     if (DartsRemaining <= 0) return;
 
     --DartsRemaining;
 
     // On server the variable changes will replicate to clients and trigger OnRep
-    UE_LOG(LogTemp, Log, TEXT("[Server] Consumed one dart. Remaining=%d"), DartsRemaining);
+    UE_LOG(LogTemp, Log, TEXT("[Server] Consumed one dart. Remaining=%d (forfeit=%s)"),
+           DartsRemaining, bForfeit ? TEXT("true") : TEXT("false"));
 
     // Optionally, notify server-side UI (if any) by calling the Blueprint event on server too
     BP_OnDartsRemainingUpdated(DartsRemaining);
+
+    // If this was a forfeit, notify GameMode so it can advance the turn as needed.
+    if (bForfeit)
+    {
+        if (AGameModeBase* GMBase = UGameplayStatics::GetGameMode(this))
+        {
+            if (ADartGameMode* GM = Cast<ADartGameMode>(GMBase))
+            {
+                if (APlayerController* PC = Cast<APlayerController>(GetController()))
+                {
+                    GM->ForfeitDart(PC);
+                }
+            }
+        }
+    }
 }
 
 // New: AddPoints public helper
