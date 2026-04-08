@@ -23,6 +23,9 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
+	// Add EndPlay so we can detect lifespan expiry and notify GameMode.
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
 	UFUNCTION()
 	void OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor,
 			   UPrimitiveComponent* OtherComp, FVector NormalImpulse,
@@ -31,4 +34,7 @@ protected:
 private:
 	// Server-only: once stuck we won't process further hits or destroy the actor.
 	bool bIsStuck;
+
+	// Has the projectile already notified the GameMode about this throw? Avoid double notifications.
+	bool bNotified;
 };

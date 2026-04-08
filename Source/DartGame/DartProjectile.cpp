@@ -3,6 +3,10 @@
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "Dartboard.h"
+#include "DartGameMode.h"
+#include "Kismet/GameplayStatics.h"
+#include "GameFramework/PlayerController.h"
+#include "Engine/Engine.h"
 
 ADartProjectile::ADartProjectile()
 {
@@ -45,6 +49,12 @@ ADartProjectile::ADartProjectile()
 
 	// server-only guard
 	bIsStuck = false;
+
+	// Ensure stray darts are cleaned up in a few seconds if they never hit anything.
+	InitialLifeSpan = 5.0f;
+
+	// Not yet notified GameMode about this throw
+	bNotified = false;
 }
 
 void ADartProjectile::BeginPlay()
@@ -61,6 +71,35 @@ void ADartProjectile::BeginPlay()
 		// Guarantee pawn channel is always ignored regardless of profile overrides
 		CollisionComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
 	}
+}
+
+void ADartProjectile::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// If the projectile is being removed without having stuck to the board and
+	// without having notified game mode, treat this as a miss and notify GM.
+	if (HasAuthority() && !bIsStuck && !bNotified)
+	{
+		// Resolve owner controller
+		AController* OwnerController = nullptr;
+		if (AActor* OwnerActor = GetOwner())
+		{
+			if (APawn* OwnerPawn = Cast<APawn>(OwnerActor))
+			{
+				OwnerController = OwnerPawn->GetController();
+			}
+		}
+
+		if (OwnerController)
+		{
+			if (ADartGameMode* GM = Cast<ADartGameMode>(UGameplayStatics::GetGameMode(this)))
+			{
+				GM->RegisterThrow(Cast<APlayerController>(OwnerController), 0);
+			}
+		}
+		bNotified = true;
+	}
+
+	Super::EndPlay(EndPlayReason);
 }
 
 void ADartProjectile::Launch(FVector Direction, float Speed)
@@ -115,6 +154,7 @@ void ADartProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor,
 
 		// Mark stuck to avoid re-processing
 		bIsStuck = true;
+		bNotified = true; // board.RegisterHit will inform GameMode via character
 
 		// Stop movement and freeze the projectile on the server.
 		if (MovementComp)
@@ -122,27 +162,37 @@ void ADartProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor,
 			MovementComp->StopMovementImmediately();
 			MovementComp->Deactivate();
 		}
-
-		// Position the dart exactly at impact point and orient it so its forward
-		// points into the board (visually "stuck").
 		const FVector ImpactPoint = Hit.ImpactPoint;
-		// Make the dart's X axis point opposite to the surface normal (so it "enters" the board)
 		const FRotator StuckRot = FRotationMatrix::MakeFromX(-Hit.ImpactNormal).Rotator();
-
-		// Teleport to the impact transform on the server; this transform will replicate to clients.
 		SetActorLocationAndRotation(ImpactPoint, StuckRot, false, nullptr, ETeleportType::TeleportPhysics);
-
-		// Disable collisions so the stuck dart doesn't interfere with players or other darts.
 		if (CollisionComp) CollisionComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		if (MeshComp)      MeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-
-		// Do NOT Destroy() — keep the actor so all clients can see the stuck dart.
 		return;
 	}
 
-	// Fallback: for other hits (walls/floor) we can keep existing behaviour if desired.
-	// If you want darts to stick into world static as well, handle similar to above.
-	// For now, preserve previous behavior for non-board hits:
+	// Non-board hit (wall/floor): notify GameMode as a MISS (0 pts) then destroy.
+	if (!bNotified)
+	{
+		AController* OwnerController = nullptr;
+		if (AActor* OwnerActor = GetOwner())
+		{
+			if (APawn* OwnerPawn = Cast<APawn>(OwnerActor))
+			{
+				OwnerController = OwnerPawn->GetController();
+			}
+		}
+
+		if (OwnerController)
+		{
+			if (ADartGameMode* GM = Cast<ADartGameMode>(UGameplayStatics::GetGameMode(this)))
+			{
+				GM->RegisterThrow(Cast<APlayerController>(OwnerController), 0);
+			}
+		}
+		bNotified = true;
+	}
+
+	// Fallback: for other hits (walls/floor) destroy projectile after notifying.
 	SetActorEnableCollision(false);
 	Destroy();
 }
