@@ -5,6 +5,7 @@
 #include "GameFramework/Controller.h"
 #include "Engine/Engine.h"   // GEngine->AddOnScreenDebugMessage
 #include "Math/UnrealMathUtility.h"
+#include "Net/UnrealNetwork.h" // added for replication
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constructor
@@ -46,8 +47,13 @@ void ADartCharacter::BeginPlay()
 {
     Super::BeginPlay();
 
+    // Ensure the HUD gets correct initial values when the widget binds
     if (IsLocallyControlled())
     {
+        // Fire Blueprint events so the widget can initialize
+        BP_OnDartsRemainingUpdated(DartsRemaining);
+        BP_OnPlayerScoreUpdated(PlayerScore);
+
         GEngine->AddOnScreenDebugMessage(1, 5.f, FColor::Cyan,
             FString::Printf(TEXT("Darts Remaining: %d"), DartsRemaining));
     }
@@ -349,4 +355,50 @@ void ADartCharacter::Client_PrintThrowDiagnostics_Implementation(
     UE_LOG(LogTemp, Warning,
            TEXT("[Client] Throw diagnostics | Accuracy=%.3f | Inaccuracy=%.3f | Deviation=%.2f°"),
            Accuracy, Inaccuracy, DeviationDeg);
+}
+
+// Server RPC implementation: consume one dart (server-authoritative)
+void ADartCharacter::Server_ConsumeDart_Implementation()
+{
+    if (DartsRemaining <= 0) return;
+
+    --DartsRemaining;
+
+    // On server the variable changes will replicate to clients and trigger OnRep
+    UE_LOG(LogTemp, Log, TEXT("[Server] Consumed one dart. Remaining=%d"), DartsRemaining);
+
+    // Optionally, notify server-side UI (if any) by calling the Blueprint event on server too
+    BP_OnDartsRemainingUpdated(DartsRemaining);
+}
+
+// OnRep handlers — call Blueprint events so UMG updates
+void ADartCharacter::OnRep_DartsRemaining()
+{
+    BP_OnDartsRemainingUpdated(DartsRemaining);
+
+    if (IsLocallyControlled())
+    {
+        GEngine->AddOnScreenDebugMessage(1, 3.f, FColor::Cyan,
+            FString::Printf(TEXT("Darts Remaining (replicated): %d"), DartsRemaining));
+    }
+}
+
+void ADartCharacter::OnRep_PlayerScore()
+{
+    BP_OnPlayerScoreUpdated(PlayerScore);
+
+    if (IsLocallyControlled())
+    {
+        GEngine->AddOnScreenDebugMessage(6, 3.f, FColor::Green,
+            FString::Printf(TEXT("Score (replicated): %d"), PlayerScore));
+    }
+}
+
+// Replication registration
+void ADartCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+    Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+    DOREPLIFETIME(ADartCharacter, DartsRemaining);
+    DOREPLIFETIME(ADartCharacter, PlayerScore);
 }
