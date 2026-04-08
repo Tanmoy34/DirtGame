@@ -1,5 +1,6 @@
 ﻿#include "DartCharacter.h"
 #include "DartProjectile.h"
+#include "DartGameState.h"
 #include "Components/InputComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
@@ -115,6 +116,18 @@ void ADartCharacter::LookUp (float Value) { AddControllerPitchInput(Value); }
 
 void ADartCharacter::StartAim()
 {
+    // ── Turn-order lock ───────────────────────────────────────────────────────
+    // bIsMyTurn is replicated from the server — only the active player may aim.
+    if (!bIsMyTurn)
+    {
+        if (IsLocallyControlled())
+        {
+            GEngine->AddOnScreenDebugMessage(2, 3.f, FColor::Red,
+                TEXT("Not your turn!"));
+        }
+        return;
+    }
+
     if (DartsRemaining <= 0)
     {
         if (IsLocallyControlled())
@@ -196,6 +209,13 @@ void ADartCharacter::Throw()
 
     ClearAimTimer();
     AimCountdown = 0;
+
+    // ── Turn-order lock ───────────────────────────────────────────────────────
+    if (!bIsMyTurn)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Throw() — not this player's turn, ignoring."));
+        return;
+    }
 
     if (DartsRemaining <= 0)
     {
@@ -491,6 +511,52 @@ void ADartCharacter::Server_AddRoundScore(int32 Points)
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// OnRep_bIsMyTurn  (owning client)
+//
+//  Fires the appropriate Blueprint turn event so the HUD reacts immediately
+//  when the server flips the flag — no polling needed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+void ADartCharacter::OnRep_bIsMyTurn()
+{
+    if (bIsMyTurn)
+    {
+        // Grab our slot index from GameState for the BP event parameter.
+        int32 MySlot = 0;
+        if (AGameStateBase* GSBase = GetWorld() ? GetWorld()->GetGameState() : nullptr)
+        {
+            if (ADartGameState* GS = Cast<ADartGameState>(GSBase))
+            {
+                if (AController* C = GetController())
+                {
+                    MySlot = GS->GetSlotIndexForController(Cast<APlayerController>(C));
+                    if (MySlot < 0) MySlot = 0;
+                }
+            }
+        }
+
+        BP_OnTurnStarted(MySlot);
+
+        if (IsLocallyControlled())
+        {
+            GEngine->AddOnScreenDebugMessage(9, 5.f, FColor::Green,
+                TEXT("YOUR TURN — aim and throw!"));
+        }
+    }
+    else
+    {
+        // We don't have a reliable slot here easily, pass 0 as a sentinel.
+        BP_OnTurnEnded(0);
+
+        if (IsLocallyControlled())
+        {
+            GEngine->AddOnScreenDebugMessage(9, 5.f, FColor::Orange,
+                TEXT("Waiting for your turn…"));
+        }
+    }
+}
+
 // Replication registration
 void ADartCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
@@ -500,4 +566,5 @@ void ADartCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
     DOREPLIFETIME(ADartCharacter, PlayerScore);
     DOREPLIFETIME(ADartCharacter, RoundScore);
     DOREPLIFETIME(ADartCharacter, LastScoredPoints); // new
+    DOREPLIFETIME(ADartCharacter, bIsMyTurn);
 }

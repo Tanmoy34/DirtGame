@@ -1,58 +1,88 @@
 ﻿#pragma once
 #include "CoreMinimal.h"
 #include "GameFramework/GameMode.h"
-#include "GameFramework/PlayerController.h" // for ClientMessage
 #include "DartGameMode.generated.h"
+
+class ADartCharacter;
+class ADartGameState;
 
 UCLASS()
 class DARTGAME_API ADartGameMode : public AGameMode
 {
 	GENERATED_BODY()
+
 public:
 	ADartGameMode();
 
-	// Called by server to advance to next player's turn
-	void AdvanceTurn();
+	// ── Player registration ───────────────────────────────────────────────────
 
-	// Called when a throw scores; adds points server-side
-	// Declaration only — implementation lives in DartGameMode.cpp
+	/** Called automatically by the engine when a player joins. */
+	virtual void PostLogin(APlayerController* NewPlayer) override;
+
+	/** Called when a player leaves (clean up TurnOrder slot if needed). */
+	virtual void Logout(AController* Exiting) override;
+
+	// ── Turn / scoring API  (called from Dartboard and DartCharacter) ─────────
+
+	/**
+	 * Award Points to the player whose dart just hit.
+	 * Finds the correct slot via the projectile's owner PC, updates GameState,
+	 * updates the character's RoundScore/PlayerScore, then calls NotifyTurnAdvance.
+	 *
+	 * @param OwnerPC    PlayerController that owns the dart that just hit.
+	 * @param Points     Score to award (0 = miss, still consumes a dart).
+	 */
+	void RegisterThrow(APlayerController* OwnerPC, int32 Points);
+
+	/**
+	 * Legacy entry point kept for backward compatibility with Dartboard.cpp
+	 * which still calls  GM->AddScore(0, Points).
+	 * Routes into RegisterThrow using the PlayerIndex as a slot offset.
+	 */
 	void AddScore(int32 PlayerIndex, int32 Points);
 
+	/**
+	 * Called by GameMode itself (timeout) or externally to forfeit one dart
+	 * for the active player without awarding points.
+	 */
+	void ForfeitDart(APlayerController* OwnerPC);
+
 private:
+
+	// ── Turn timer ────────────────────────────────────────────────────────────
+
+	/** Seconds allowed per throw while the player is not actively aiming. */
+	UPROPERTY(EditDefaultsOnly, Category = "Turn", meta=(ClampMin="5"))
+	float TurnTimeoutSeconds = 30.f;
+
 	FTimerHandle TurnTimerHandle;
+
+	/** Restart the per-throw timer for the currently active player. */
+	void RestartTurnTimer();
+
+	/** Fired when the active player's throw timer expires. */
 	void OnTurnTimeout();
 
-	// --- Added bookkeeping ---
-	// Tracks total points per player index
-	TMap<int32, int32> PlayerScores;
+	// ── Internal helpers ──────────────────────────────────────────────────────
 
-	// Tracks how many darts each player has used in this round
-	TMap<int32, int32> PlayerDartsUsed;
+	/**
+	 * After a dart is consumed (hit or forfeit), check if the turn is over.
+	 * If so, advance to the next player and notify them via Client RPC.
+	 * If the game just ended, broadcast game-over.
+	 */
+	void NotifyTurnAdvance(ADartGameState* GS);
 
-	// Send a simple textual scoreboard to every connected player (ClientMessage).
-	// Implemented here inline to avoid touching extra files; called on server.
-	void BroadcastTotalScores()
-	{
-		// Compose message
-		FString Msg = TEXT("=== Round complete — Total Scores ===\n");
-		for (const TPair<int32,int32>& KV : PlayerScores)
-		{
-			Msg += FString::Printf(TEXT("Player %d : %d\n"), KV.Key, KV.Value);
-		}
+	/**
+	 * Send a Client RPC to the player at SlotIndex telling them it's now their
+	 * turn and enabling their throw input.
+	 */
+	void NotifyPlayerTurnStart(int32 SlotIndex);
 
-		// Send to every connected player controller
-		if (UWorld* World = GetWorld())
-		{
-			for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
-			{
-				if (APlayerController* PC = It->Get())
-				{
-					PC->ClientMessage(Msg);
-				}
-			}
-		}
+	/**
+	 * Disable throw input on the player at SlotIndex (their turn just ended).
+	 */
+	void NotifyPlayerTurnEnd(int32 SlotIndex);
 
-		UE_LOG(LogTemp, Log, TEXT("%s"), *Msg);
-	}
-	// --- end bookkeeping ---
+	/** Returns the DartCharacter for a given PlayerController (may be nullptr). */
+	ADartCharacter* GetCharacterForPC(APlayerController* PC) const;
 };

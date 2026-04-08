@@ -42,6 +42,15 @@ public:
     UPROPERTY(ReplicatedUsing = OnRep_DartsRemaining, BlueprintReadOnly, Category = "Darts")
     int32 DartsRemaining = 3;   // default 3 darts
 
+    /**
+     * Set by the GameMode on the server when it's this player's turn.
+     * Replicated to the owning client so the HUD and input can respond.
+     *   true  → player may aim and throw
+     *   false → player must wait (another player's turn)
+     */
+    UPROPERTY(ReplicatedUsing = OnRep_bIsMyTurn, BlueprintReadOnly, Category = "Darts")
+    bool bIsMyTurn = false;
+
     UPROPERTY(ReplicatedUsing = OnRep_PlayerScore, BlueprintReadOnly, Category = "Darts")
     int32 PlayerScore = 0;      // player's total score (all rounds combined)
 
@@ -85,6 +94,10 @@ protected:
     // Called when replicated DartsRemaining updates on clients
     UFUNCTION()
     void OnRep_DartsRemaining();
+
+    // Called when bIsMyTurn replicates to clients
+    UFUNCTION()
+    void OnRep_bIsMyTurn();
 
     // Called when replicated PlayerScore updates on clients
     UFUNCTION()
@@ -146,6 +159,22 @@ public:
     UFUNCTION(BlueprintImplementableEvent, Category = "HUD")
     void BP_OnRoundScoreUpdated(int32 NewRoundScore);
 
+    /**
+     * Fired on this character's owning client when the GameMode enables their
+     * turn.  Use this to show "YOUR TURN!" UI, enable aiming visuals, etc.
+     * @param SlotIndex  This player's slot in the turn order (0-based).
+     */
+    UFUNCTION(BlueprintImplementableEvent, Category = "Turn")
+    void BP_OnTurnStarted(int32 SlotIndex);
+
+    /**
+     * Fired on this character's owning client when the GameMode ends their
+     * turn.  Use this to hide the aim indicator, show "Waiting…" etc.
+     * @param SlotIndex  This player's slot in the turn order (0-based).
+     */
+    UFUNCTION(BlueprintImplementableEvent, Category = "Turn")
+    void BP_OnTurnEnded(int32 SlotIndex);
+
     // ---- New: Last-scored points (replicated per-player) --------------------
     // LastScoredPoints: the points scored by the player's most recent hit.
     UPROPERTY(ReplicatedUsing = OnRep_LastScoredPoints, BlueprintReadOnly, Category = "Darts")
@@ -168,4 +197,3 @@ public:
     UFUNCTION(Server, Reliable)
     void Server_RequestAddPoints(int32 Points);
 };
-
