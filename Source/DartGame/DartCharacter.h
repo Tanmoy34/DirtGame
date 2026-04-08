@@ -107,6 +107,33 @@ protected:
     UFUNCTION()
     void OnRep_RoundScore();
 
+    // ---- New: player identity & leaderboard helpers -----------------------
+    /** Player display name (replicated) — use this in UMG leaderboard rows. */
+    UPROPERTY(ReplicatedUsing=OnRep_PlayerDisplayName, BlueprintReadOnly, Category="Player")
+    FString PlayerDisplayName;
+
+    /** Slot/index in turn order (0-based). Set by GameMode on the server. */
+    UPROPERTY(Replicated, BlueprintReadOnly, Category="Player")
+    int32 PlayerSlot = -1;
+
+    /** Called when PlayerDisplayName replicates to clients. */
+    UFUNCTION()
+    void OnRep_PlayerDisplayName();
+
+    /** Notify Blueprints when the player's display name becomes available (useful for UMG binding). */
+    UFUNCTION(BlueprintImplementableEvent, Category="Player")
+    void BP_OnPlayerNameUpdated(const FString& NewName);
+
+    // Simple Blueprint-callable helpers for UMG / widgets
+    UFUNCTION(BlueprintCallable, Category="HUD")
+    FString GetPlayerName() const { return PlayerDisplayName; }
+
+    UFUNCTION(BlueprintCallable, Category="HUD")
+    int32 GetPlayerSlot() const { return PlayerSlot; }
+
+    UFUNCTION(BlueprintCallable, Category="HUD")
+    bool IsActiveTurn() const { return bIsMyTurn; }
+
 private:
     // ── Components ──────────────────────────────────────────────────────────
     UPROPERTY(VisibleAnywhere) USpringArmComponent* SpringArm;
@@ -197,3 +224,4 @@ public:
     UFUNCTION(Server, Reliable)
     void Server_RequestAddPoints(int32 Points);
 };
+

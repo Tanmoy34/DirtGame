@@ -9,6 +9,9 @@
 #include "Net/UnrealNetwork.h" // added for replication
 #include "Kismet/GameplayStatics.h" // added for GetGameMode()
 
+// Add this include so APlayerState is defined when used below
+#include "GameFramework/PlayerState.h"
+
 // Add the game mode header so ADartGameMode is visible to this translation unit.
 #include "DartGameMode.h"
 
@@ -94,6 +97,21 @@ void ADartCharacter::BeginPlay()
                        *GetName(), NumPlayers);
             }
         }
+    }
+
+    // Server: initialize display name from PlayerState so it replicates to clients
+    if (HasAuthority())
+    {
+        if (APlayerState* PS = GetPlayerState())
+        {
+            PlayerDisplayName = PS->GetPlayerName();
+        }
+    }
+
+    // Fire the name update locally so host's HUD shows immediately
+    if (IsLocallyControlled())
+    {
+        BP_OnPlayerNameUpdated(PlayerDisplayName);
     }
 }
 
@@ -510,6 +528,19 @@ void ADartCharacter::OnRep_LastScoredPoints()
     }
 }
 
+// New: replica notify for PlayerDisplayName
+void ADartCharacter::OnRep_PlayerDisplayName()
+{
+    // Let Blueprints update the UI when the name replicates
+    BP_OnPlayerNameUpdated(PlayerDisplayName);
+
+    if (IsLocallyControlled())
+    {
+        GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Cyan,
+            FString::Printf(TEXT("Player name set: %s"), *PlayerDisplayName));
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Server_AddRoundScore  (server only — called by DartGameMode::AddScore)
 //
@@ -627,4 +658,8 @@ void ADartCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
     DOREPLIFETIME(ADartCharacter, RoundScore);
     DOREPLIFETIME(ADartCharacter, LastScoredPoints); // new
     DOREPLIFETIME(ADartCharacter, bIsMyTurn);
+
+    // New replicated fields
+    DOREPLIFETIME(ADartCharacter, PlayerDisplayName);
+    DOREPLIFETIME(ADartCharacter, PlayerSlot);
 }
