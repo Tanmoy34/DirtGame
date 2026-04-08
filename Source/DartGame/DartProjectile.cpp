@@ -42,6 +42,9 @@ ADartProjectile::ADartProjectile()
 	MovementComp->bAutoActivate = false;
 	MovementComp->SetIsReplicated(true);
 	MovementComp->SetUpdatedComponent(CollisionComp);
+
+	// server-only guard
+	bIsStuck = false;
 }
 
 void ADartProjectile::BeginPlay()
@@ -93,18 +96,54 @@ void ADartProjectile::Launch(FVector Direction, float Speed)
 	}
 }
 
-void ADartProjectile::OnHit(UPrimitiveComponent*, AActor* OtherActor,
-	UPrimitiveComponent*, FVector, const FHitResult& Hit)
+void ADartProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor,
+	UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
 {
+	// Only the server should decide to stick the dart and update transforms.
 	if (!HasAuthority()) return;
 
+	// Avoid processing the same hit multiple times
+	if (bIsStuck) return;
+
+	// Ignore owner/instigator collisions
 	if (OtherActor == GetOwner() || OtherActor == GetInstigator()) return;
 
+	// If we hit a dartboard, register the hit and STICK the dart into the board
 	if (ADartboard* Board = Cast<ADartboard>(OtherActor))
 	{
 		Board->RegisterHit(Hit.ImpactPoint, this);
+
+		// Mark stuck to avoid re-processing
+		bIsStuck = true;
+
+		// Stop movement and freeze the projectile on the server.
+		if (MovementComp)
+		{
+			MovementComp->StopMovementImmediately();
+			MovementComp->Deactivate();
+		}
+
+		// Position the dart exactly at impact point and orient it so its forward
+		// points into the board (visually "stuck").
+		const FVector ImpactPoint = Hit.ImpactPoint;
+		// Make the dart's X axis point opposite to the surface normal (so it "enters" the board)
+		const FRotator StuckRot = FRotationMatrix::MakeFromX(-Hit.ImpactNormal).Rotator();
+
+		// Teleport to the impact transform on the server; this transform will replicate to clients.
+		SetActorLocationAndRotation(ImpactPoint, StuckRot, false, nullptr, ETeleportType::TeleportPhysics);
+
+		// Disable collisions so the stuck dart doesn't interfere with players or other darts.
+		if (CollisionComp) CollisionComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		if (MeshComp)      MeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+		// Do NOT Destroy() — keep the actor so all clients can see the stuck dart.
+		return;
 	}
 
+	// Fallback: for other hits (walls/floor) we can keep existing behaviour if desired.
+	// If you want darts to stick into world static as well, handle similar to above.
+	// For now, preserve previous behavior for non-board hits:
 	SetActorEnableCollision(false);
 	Destroy();
 }
+

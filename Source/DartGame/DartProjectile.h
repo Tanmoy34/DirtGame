@@ -27,4 +27,8 @@ protected:
 	void OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor,
 			   UPrimitiveComponent* OtherComp, FVector NormalImpulse,
 			   const FHitResult& Hit);
+
+private:
+	// Server-only: once stuck we won't process further hits or destroy the actor.
+	bool bIsStuck;
 };
