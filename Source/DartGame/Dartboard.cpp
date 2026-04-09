@@ -2,13 +2,10 @@
 #include "DartProjectile.h"
 #include "DartGameMode.h"
 #include "Kismet/GameplayStatics.h"
-#include "Engine/Engine.h"           // GEngine->AddOnScreenDebugMessage
+#include "Engine/Engine.h" 
 #include "GameFramework/PlayerController.h"
-#include "DartCharacter.h"           // << added to update the throwing character's score
+#include "DartCharacter.h" 
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Constructor
-// ─────────────────────────────────────────────────────────────────────────────
 
 ADartboard::ADartboard()
 {
@@ -18,91 +15,101 @@ ADartboard::ADartboard()
 	LastScore = 0;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CalculatePoints
-//
-//  Pure function — no side-effects, just maps a distance to a score.
-//  Having this separate makes unit-testing trivial and keeps RegisterHit clean.
-// ─────────────────────────────────────────────────────────────────────────────
 
 int32 ADartboard::CalculatePoints(float Dist) const
 {
-	if (Dist <= BullseyeRadius) return 100;   // Red dot — dead centre
-	if (Dist <= SkyBlueRadius)  return 80;    // Cyan / sky-blue ring
-	if (Dist <= DeepBlueRadius) return 40;    // Deep blue ring
-	if (Dist <= GreenRadius)    return 10;    // Green outer ring
-	return 0;                                  // Miss — outside the board
+	if (Dist <= BullseyeRadius)
+		return 100; // Red dot — dead centre
+	if (Dist <= SkyBlueRadius)
+		return 80; // Cyan / sky-blue ring
+	if (Dist <= DeepBlueRadius)
+		return 40; // Deep blue ring
+	if (Dist <= GreenRadius)
+		return 10; // Green outer ring
+	return 0;	    // Miss — outside board
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PrintHitResult  (server helper — routes message to the correct screen)
-//
-//  On a dedicated server GEngine is usually valid but has no viewport;
-//  the message won't be visible there anyway.  We call it on the server
-//  because that's where RegisterHit runs.  If you later add a Client RPC
-//  (like Client_PrintThrowDiagnostics in DartCharacter) you can mirror this
-//  message to the throwing player's screen the same way.
-// ─────────────────────────────────────────────────────────────────────────────
 
-void ADartboard::PrintHitResult(int32 Points, float Dist, AController* OwnerController) const
+
+
+void ADartboard::PrintHitResult(int32 Points, float Dist, AController *OwnerController) const
 {
-	// ── Zone label ────────────────────────────────────────────────────────────
+
 	FString ZoneLabel;
-	FColor  ZoneColor;
+	FColor ZoneColor;
 
-	if (Points == 100) { ZoneLabel = TEXT("BULLSEYE  (red centre)");    ZoneColor = FColor::Red;    }
-	else if (Points == 80) { ZoneLabel = TEXT("Sky-Blue ring");          ZoneColor = FColor::Cyan;   }
-	else if (Points == 40) { ZoneLabel = TEXT("Deep-Blue ring");         ZoneColor = FColor(0, 80, 200); }
-	else if (Points == 10) { ZoneLabel = TEXT("Green outer ring");       ZoneColor = FColor::Green;  }
-	else                   { ZoneLabel = TEXT("MISS — outside board");   ZoneColor = FColor::White;  }
+	if (Points == 100)
+	{
+		ZoneLabel = TEXT("BULLSEYE  (red centre)");
+		ZoneColor = FColor::Red;
+	}
+	else if (Points == 80)
+	{
+		ZoneLabel = TEXT("Sky-Blue ring");
+		ZoneColor = FColor::Cyan;
+	}
+	else if (Points == 40)
+	{
+		ZoneLabel = TEXT("Deep-Blue ring");
+		ZoneColor = FColor(0, 80, 200);
+	}
+	else if (Points == 10)
+	{
+		ZoneLabel = TEXT("Green outer ring");
+		ZoneColor = FColor::Green;
+	}
+	else
+	{
+		ZoneLabel = TEXT("MISS — outside board");
+		ZoneColor = FColor::White;
+	}
 
-	// ── On-screen messages (slot 10 & 11 so they don't clash with DartCharacter slots 1-5) ──
+	
 
-	// Line 1 — zone + points
+	
 	GEngine->AddOnScreenDebugMessage(
-		10,     // key (constant → new hit overwrites old, no spam)
-		6.f,    // display time (seconds)
+		10,	 
+		6.f, 
 		ZoneColor,
-		FString::Printf(TEXT("HIT ► %s  |  +%d pts"), *ZoneLabel, Points)
-	);
+		FString::Printf(TEXT("HIT ► %s  |  +%d pts"), *ZoneLabel, Points));
 
-	// Line 2 — radial distance from centre (useful for tuning radii in the editor)
+
 	GEngine->AddOnScreenDebugMessage(
 		11,
 		6.f,
 		FColor::White,
-		FString::Printf(TEXT("    Distance from centre: %.2f cm"), Dist)
-	);
+		FString::Printf(TEXT("    Distance from centre: %.2f cm"), Dist));
 
-	// ── Log (visible in Output Log / dedicated server console) ───────────────
+	
 	UE_LOG(LogTemp, Warning,
-		TEXT("[Dartboard] Hit | Zone=%s | Points=%d | Dist=%.2f"),
-		*ZoneLabel, Points, Dist);
+		   TEXT("[Dartboard] Hit | Zone=%s | Points=%d | Dist=%.2f"),
+		   *ZoneLabel, Points, Dist);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// RegisterHit  (server authoritative)
-// ─────────────────────────────────────────────────────────────────────────────
 
-int32 ADartboard::RegisterHit(const FVector& ImpactPoint, ADartProjectile* Dart)
+// RegisterHit  (server authoritative)
+
+
+int32 ADartboard::RegisterHit(const FVector &ImpactPoint, ADartProjectile *Dart)
 {
 	// Only the server should award points and print results.
-	if (!HasAuthority()) return 0;
+	if (!HasAuthority())
+		return 0;
 
-	// ── 1. Convert world-space impact to board-local space ───────────────────
+	
 	const FVector LocalHit = GetTransform().InverseTransformPosition(ImpactPoint);
 
-	// Use Y and Z — the two axes in the board's face plane.
+	
 	const float Dist = FVector2D(LocalHit.Y, LocalHit.Z).Size();
 
-	// ── 2. Map distance → points ─────────────────────────────────────────────
+	
 	const int32 Points = CalculatePoints(Dist);
 
-	// ── 3. Print to screen ───────────────────────────────────────────────────
-	AController* OwnerController = nullptr;
+	
+	AController *OwnerController = nullptr;
 	if (Dart && Dart->GetOwner())
 	{
-		if (APawn* OwnerPawn = Cast<APawn>(Dart->GetOwner()))
+		if (APawn *OwnerPawn = Cast<APawn>(Dart->GetOwner()))
 		{
 			OwnerController = OwnerPawn->GetController();
 		}
@@ -110,10 +117,8 @@ int32 ADartboard::RegisterHit(const FVector& ImpactPoint, ADartProjectile* Dart)
 
 	PrintHitResult(Points, Dist, OwnerController);
 
-	// ── 4. AWARD THE SCORE: route to GameMode (single authoritative path) ─────
-	// Do NOT credit the character directly here — call GameMode::RegisterThrow so
-	// the GameMode can perform turn logic and give points exactly once.
-	if (ADartGameMode* GM = Cast<ADartGameMode>(UGameplayStatics::GetGameMode(this)))
+	
+	if (ADartGameMode *GM = Cast<ADartGameMode>(UGameplayStatics::GetGameMode(this)))
 	{
 		if (OwnerController)
 		{
@@ -121,18 +126,17 @@ int32 ADartboard::RegisterHit(const FVector& ImpactPoint, ADartProjectile* Dart)
 		}
 	}
 
-	// Update board-side "last hit" value (single-hit points only). Per-player
-	// totals live on ADartCharacter, not on the board.
+	
 	LastScore = Points;
 
-	// Notify any Blueprint listeners so widgets can update immediately.
+	
 	BP_OnLastScoreUpdated(LastScore);
 
-	// Debug log (optional)
+
 	if (GEngine)
 	{
 		GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Green,
-			FString::Printf(TEXT("Board: hit points=%d  reported total=%d"), Points, LastScore));
+										 FString::Printf(TEXT("Board: hit points=%d  reported total=%d"), Points, LastScore));
 	}
 
 	return Points;

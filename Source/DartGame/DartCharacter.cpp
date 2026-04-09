@@ -4,20 +4,14 @@
 #include "Components/InputComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
-#include "Engine/Engine.h"   // GEngine->AddOnScreenDebugMessage
+#include "Engine/Engine.h" 
 #include "Math/UnrealMathUtility.h"
-#include "Net/UnrealNetwork.h" // added for replication
-#include "Kismet/GameplayStatics.h" // added for GetGameMode()
-
-// Add this include so APlayerState is defined when used below
+#include "Net/UnrealNetwork.h"     
+#include "Kismet/GameplayStatics.h" 
 #include "GameFramework/PlayerState.h"
-
-// Add the game mode header so ADartGameMode is visible to this translation unit.
 #include "DartGameMode.h"
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Constructor
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 ADartCharacter::ADartCharacter()
 {
@@ -27,7 +21,7 @@ ADartCharacter::ADartCharacter()
     // Spring Arm
     SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
     SpringArm->SetupAttachment(RootComponent);
-    SpringArm->TargetArmLength        = 300.f;
+    SpringArm->TargetArmLength = 300.f;
     SpringArm->bUsePawnControlRotation = true;
     SpringArm->SetRelativeLocation(FVector(0.f, 0.f, 60.f));
 
@@ -38,18 +32,18 @@ ADartCharacter::ADartCharacter()
 
     // Movement
     GetCharacterMovement()->bOrientRotationToMovement = true;
-    GetCharacterMovement()->RotationRate              = FRotator(0.f, 500.f, 0.f);
-    GetCharacterMovement()->MaxWalkSpeed              = 400.f;
-    GetCharacterMovement()->JumpZVelocity             = 500.f;
+    GetCharacterMovement()->RotationRate = FRotator(0.f, 500.f, 0.f);
+    GetCharacterMovement()->MaxWalkSpeed = 400.f;
+    GetCharacterMovement()->JumpZVelocity = 500.f;
 
-    bUseControllerRotationYaw   = false;
+    bUseControllerRotationYaw = false;
     bUseControllerRotationPitch = false;
-    bUseControllerRotationRoll  = false;
+    bUseControllerRotationRoll = false;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+
 // BeginPlay
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 void ADartCharacter::BeginPlay()
 {
@@ -58,39 +52,37 @@ void ADartCharacter::BeginPlay()
     // Ensure the HUD gets correct initial values when the widget binds
     if (IsLocallyControlled())
     {
-        // Fire Blueprint events so the widget can initialize
+     
         BP_OnDartsRemainingUpdated(DartsRemaining);
         BP_OnPlayerScoreUpdated(PlayerScore);
         BP_OnRoundScoreUpdated(RoundScore);
 
-        // New: ensure widget sees the last scored points value at start
+        
         BP_OnLastScoredUpdated(LastScoredPoints);
 
         GEngine->AddOnScreenDebugMessage(1, 5.f, FColor::Cyan,
-            FString::Printf(TEXT("Darts Remaining: %d"), DartsRemaining));
+                                         FString::Printf(TEXT("Darts Remaining: %d"), DartsRemaining));
     }
 
-    // ── Server-side: ensure the first-joined player gets the initial turn ──
-    // This avoids race conditions where PostLogin may run before the pawn is possessed.
+    // ── Server-side
     if (HasAuthority())
     {
-        if (AGameStateBase* GSBase = GetWorld() ? GetWorld()->GetGameState() : nullptr)
+        if (AGameStateBase *GSBase = GetWorld() ? GetWorld()->GetGameState() : nullptr)
         {
             const int32 NumPlayers = GSBase->PlayerArray.Num();
             if (NumPlayers == 1)
             {
-                // Grant initial turn to the very first player (server-authoritative)
+                
                 bIsMyTurn = true;
 
-                // For a listen-server host the local UI won't receive an OnRep,
-                // so call the Blueprint hook immediately so host HUD updates.
+                // For a listen-server host the local UI 
                 if (IsLocallyControlled())
                 {
-                    const int32 SlotIndex = 0; // first-player slot
+                    const int32 SlotIndex = 0; 
                     BP_OnTurnStarted(SlotIndex);
 
                     GEngine->AddOnScreenDebugMessage(9, 5.f, FColor::Green,
-                        TEXT("YOUR TURN — aim and throw! (initial assignment)"));
+                                                     TEXT("YOUR TURN — aim and throw! (initial assignment)"));
                 }
 
                 UE_LOG(LogTemp, Log, TEXT("[DartCharacter] Assigned initial turn to %s (players=%d)"),
@@ -102,43 +94,43 @@ void ADartCharacter::BeginPlay()
     // Server: initialize display name from PlayerState so it replicates to clients
     if (HasAuthority())
     {
-        if (APlayerState* PS = GetPlayerState())
+        if (APlayerState *PS = GetPlayerState())
         {
             PlayerDisplayName = PS->GetPlayerName();
         }
     }
 
-    // Fire the name update locally so host's HUD shows immediately
+   
     if (IsLocallyControlled())
     {
         BP_OnPlayerNameUpdated(PlayerDisplayName);
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Input
-// ─────────────────────────────────────────────────────────────────────────────
 
-void ADartCharacter::SetupPlayerInputComponent(UInputComponent* Input)
+// Input
+
+
+void ADartCharacter::SetupPlayerInputComponent(UInputComponent *Input)
 {
     Super::SetupPlayerInputComponent(Input);
 
     Input->BindAxis("MoveForward", this, &ADartCharacter::MoveForward);
-    Input->BindAxis("MoveRight",   this, &ADartCharacter::MoveRight);
-    Input->BindAxis("Turn",        this, &ADartCharacter::Turn);
-    Input->BindAxis("LookUp",      this, &ADartCharacter::LookUp);
+    Input->BindAxis("MoveRight", this, &ADartCharacter::MoveRight);
+    Input->BindAxis("Turn", this, &ADartCharacter::Turn);
+    Input->BindAxis("LookUp", this, &ADartCharacter::LookUp);
 
-    Input->BindAction("Jump", IE_Pressed,  this, &ACharacter::Jump);
+    Input->BindAction("Jump", IE_Pressed, this, &ACharacter::Jump);
     Input->BindAction("Jump", IE_Released, this, &ACharacter::StopJumping);
 
     // Right mouse button: hold to aim, release to throw
-    Input->BindAction("Aim", IE_Pressed,  this, &ADartCharacter::StartAim);
+    Input->BindAction("Aim", IE_Pressed, this, &ADartCharacter::StartAim);
     Input->BindAction("Aim", IE_Released, this, &ADartCharacter::Throw);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+
 // Movement helpers
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 void ADartCharacter::MoveForward(float Value)
 {
@@ -158,23 +150,21 @@ void ADartCharacter::MoveRight(float Value)
     }
 }
 
-void ADartCharacter::Turn   (float Value) { AddControllerYawInput(Value);   }
-void ADartCharacter::LookUp (float Value) { AddControllerPitchInput(Value); }
+void ADartCharacter::Turn(float Value) { AddControllerYawInput(Value); }
+void ADartCharacter::LookUp(float Value) { AddControllerPitchInput(Value); }
 
-// ─────────────────────────────────────────────────────────────────────────────
+
 // Aim start
-// ─────────────────────────────────────────────────────────────────────────────
 
-void ADartCharacter::StartAim()
 {
-    // ── Turn-order lock ───────────────────────────────────────────────────────
-    // bIsMyTurn is replicated from the server — only the active player may aim.
+    
+    
     if (!bIsMyTurn)
     {
         if (IsLocallyControlled())
         {
             GEngine->AddOnScreenDebugMessage(2, 3.f, FColor::Red,
-                TEXT("Not your turn!"));
+                                             TEXT("Not your turn!"));
         }
         return;
     }
@@ -184,44 +174,46 @@ void ADartCharacter::StartAim()
         if (IsLocallyControlled())
         {
             GEngine->AddOnScreenDebugMessage(2, 3.f, FColor::Red,
-                TEXT("No darts remaining!"));
+                                             TEXT("No darts remaining!"));
         }
         return;
     }
 
-    bIsAiming    = true;
+    bIsAiming = true;
     AimCountdown = 30;
 
     if (IsLocallyControlled())
     {
         GEngine->AddOnScreenDebugMessage(3, 2.f, FColor::Yellow,
-            FString::Printf(TEXT("Aim timer: %d"), AimCountdown));
+                                         FString::Printf(TEXT("Aim timer: %d"), AimCountdown));
     }
 
     GetWorldTimerManager().SetTimer(
         AimTimerHandle,
         this,
         &ADartCharacter::AimTick,
-        1.f,   // interval
-        true,  // looping
-        1.f    // first fire delay
+        1.f,  
+        true, 
+        1.f   
     );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Aim tick (every second while aiming)
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 void ADartCharacter::AimTick()
 {
-    if (!bIsAiming) { ClearAimTimer(); return; }
+    if (!bIsAiming)
+    {
+        ClearAimTimer();
+        return;
+    }
 
     --AimCountdown;
 
     if (IsLocallyControlled())
     {
         GEngine->AddOnScreenDebugMessage(3, 1.1f, FColor::Yellow,
-            FString::Printf(TEXT("Aim timer: %d"), AimCountdown));
+                                         FString::Printf(TEXT("Aim timer: %d"), AimCountdown));
     }
 
     if (AimCountdown <= 0)
@@ -229,14 +221,14 @@ void ADartCharacter::AimTick()
         ClearAimTimer();
         bIsAiming = false;
 
-        // Request server to consume a dart as a FORFEIT (timeout)
+      
         Server_ConsumeDart(true);
 
         if (IsLocallyControlled())
         {
             GEngine->AddOnScreenDebugMessage(2, 4.f, FColor::Orange,
-                TEXT("DART FORFEITED — ran out of time!"));
-            // Note: UI will update when server replicates DartsRemaining
+                                             TEXT("DART FORFEITED — ran out of time!"));
+            
         }
 
         UE_LOG(LogTemp, Warning,
@@ -249,19 +241,20 @@ void ADartCharacter::ClearAimTimer()
     GetWorldTimerManager().ClearTimer(AimTimerHandle);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+
 // Throw  (local client)
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 void ADartCharacter::Throw()
 {
-    if (!bIsAiming) return;
+    if (!bIsAiming)
+        return;
     bIsAiming = false;
 
     ClearAimTimer();
     AimCountdown = 0;
 
-    // ── Turn-order lock ───────────────────────────────────────────────────────
+    // ── Turn-order lock 
     if (!bIsMyTurn)
     {
         UE_LOG(LogTemp, Warning, TEXT("Throw() — not this player's turn, ignoring."));
@@ -281,36 +274,33 @@ void ADartCharacter::Throw()
         return;
     }
 
-    // Server-authoritative consume: ask server to consume one dart (not a forfeit)
+    // Server-authoritative consume: 
     Server_ConsumeDart(false);
 
     if (IsLocallyControlled())
     {
         GEngine->AddOnScreenDebugMessage(1, 5.f, FColor::Cyan,
-            FString::Printf(TEXT("Darts Remaining: %d (pending server update)"), DartsRemaining));
+                                         FString::Printf(TEXT("Darts Remaining: %d (pending server update)"), DartsRemaining));
     }
 
-    // Capture the widget accuracy value at the moment the button is released.
-    // TimingAccuracy is BlueprintReadWrite so the widget sets it every frame
-    // while the ping-pong animation runs.
+    
     const float CapturedAccuracy = FMath::Clamp(TimingAccuracy, 0.f, 1.f);
 
-    const FVector Origin    = Camera->GetComponentLocation()
-                            + Camera->GetForwardVector() * 50.f;
+    const FVector Origin = Camera->GetComponentLocation() + Camera->GetForwardVector() * 50.f;
     const FVector Direction = Camera->GetForwardVector();
-    const float   Speed     = MaxThrowSpeed * FMath::Max(CapturedAccuracy, 0.3f);
+    const float Speed = MaxThrowSpeed * FMath::Max(CapturedAccuracy, 0.3f);
 
     UE_LOG(LogTemp, Warning,
            TEXT("Throw() → Server_Throw | Accuracy=%.3f | Speed=%.1f"),
            CapturedAccuracy, Speed);
 
-    // Send raw camera direction + accuracy to server.
+    
     Server_Throw(Origin, Direction, Speed, CapturedAccuracy);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+
 // Server_Throw  (runs on server only)
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 void ADartCharacter::Server_Throw_Implementation(
     FVector Origin, FVector Direction, float Speed, float Accuracy)
@@ -324,50 +314,39 @@ void ADartCharacter::Server_Throw_Implementation(
         return;
     }
 
-    // ── 1. Calculate inaccuracy ─────────────────────────────────────────────
-    //
-    //   Inaccuracy  = 1 - Accuracy   (0 = perfect, 1 = worst)
-    //   DeviationDeg = Inaccuracy * MaxInaccuracyAngle
-    //
-    //   We then pick a random direction within a cone of that half-angle around
-    //   the intended Direction.  FMath::VRandCone gives us exactly that: a unit
-    //   vector uniformly distributed inside a cone of the given half-angle.
-    //
-    //   This is all done on the server so the seed is authoritative; clients
-    //   never compute a competing direction.
+   
 
-    const float Inaccuracy   = 1.f - Accuracy;                        // 0–1
-    const float DeviationDeg = Inaccuracy * MaxInaccuracyAngle;       // 0–MaxAngle
+    const float Inaccuracy = 1.f - Accuracy;                    
+    const float DeviationDeg = Inaccuracy * MaxInaccuracyAngle; 
     const float DeviationRad = FMath::DegreesToRadians(DeviationDeg);
 
     FVector FinalDirection;
     if (DeviationRad > SMALL_NUMBER)
     {
-        // VRandCone: returns a unit vector within a cone of HalfAngleRad around
-        // the Dir axis, using the server's authoritative RNG stream.
+       
+       
         FinalDirection = FMath::VRandCone(Direction, DeviationRad);
     }
     else
     {
-        // Perfect accuracy — no deviation at all
+        
         FinalDirection = Direction;
     }
     FinalDirection.Normalize();
 
-    // ── 2. Spawn & launch the dart ───────────────────────────────────────────
+    // ── 2. Spawn & launch the dart 
 
     FActorSpawnParameters Params;
-    Params.Owner      = this;
+    Params.Owner = this;
     Params.Instigator = GetInstigator();
     Params.SpawnCollisionHandlingOverride =
         ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-    ADartProjectile* Dart = GetWorld()->SpawnActor<ADartProjectile>(
+    ADartProjectile *Dart = GetWorld()->SpawnActor<ADartProjectile>(
         ProjectileClass,
         Origin,
         FinalDirection.Rotation(),
-        Params
-    );
+        Params);
 
     if (Dart)
     {
@@ -382,48 +361,41 @@ void ADartCharacter::Server_Throw_Implementation(
                TEXT("[Server] SpawnActor returned NULL"));
     }
 
-    // ── 3. Send diagnostic values back to the owning client for display ──────
-    //
-    //   We do NOT call GEngine here because Server_Throw runs on the server
-    //   process; on a dedicated server there is no viewport.  Sending a Client
-    //   RPC guarantees the message appears on the correct player's screen.
+   
 
     Client_PrintThrowDiagnostics(Accuracy, Inaccuracy, DeviationDeg);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+
 // Client_PrintThrowDiagnostics  (runs on owning client)
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 void ADartCharacter::Client_PrintThrowDiagnostics_Implementation(
     float Accuracy, float Inaccuracy, float DeviationDeg)
 {
-    // Slot 4 — accuracy line (overwrites previous throw's value)
+   
     GEngine->AddOnScreenDebugMessage(4, 6.f, FColor::Green,
-        FString::Printf(
-            TEXT("Throw Accuracy : %.0f%%  (raw %.3f)"),
-            Accuracy * 100.f, Accuracy
-        ));
+                                     FString::Printf(
+                                         TEXT("Throw Accuracy : %.0f%%  (raw %.3f)"),
+                                         Accuracy * 100.f, Accuracy));
 
-    // Slot 5 — inaccuracy / deviation line
+    
     if (DeviationDeg < 0.1f)
     {
         GEngine->AddOnScreenDebugMessage(5, 6.f, FColor::Green,
-            TEXT("Inaccuracy     : 0.00°  — PERFECT THROW!"));
+                                         TEXT("Inaccuracy     : 0.00°  — PERFECT THROW!"));
     }
     else
     {
-        // Colour grades: green < 5°, yellow 5–10°, red > 10°
+       
         const FColor DeviationColor =
-            (DeviationDeg < 5.f)  ? FColor::Green  :
-            (DeviationDeg < 10.f) ? FColor::Yellow :
-                                    FColor::Red;
+            (DeviationDeg < 5.f) ? FColor::Green : (DeviationDeg < 10.f) ? FColor::Yellow
+                                                                         : FColor::Red;
 
         GEngine->AddOnScreenDebugMessage(5, 6.f, DeviationColor,
-            FString::Printf(
-                TEXT("Inaccuracy     : %.2f°  (factor %.3f)"),
-                DeviationDeg, Inaccuracy
-            ));
+                                         FString::Printf(
+                                             TEXT("Inaccuracy     : %.2f°  (factor %.3f)"),
+                                             DeviationDeg, Inaccuracy));
     }
 
     UE_LOG(LogTemp, Warning,
@@ -434,25 +406,26 @@ void ADartCharacter::Client_PrintThrowDiagnostics_Implementation(
 // Server RPC implementation: consume one dart (server-authoritative)
 void ADartCharacter::Server_ConsumeDart_Implementation(bool bForfeit)
 {
-    if (DartsRemaining <= 0) return;
+    if (DartsRemaining <= 0)
+        return;
 
     --DartsRemaining;
 
-    // On server the variable changes will replicate to clients and trigger OnRep
+    
     UE_LOG(LogTemp, Log, TEXT("[Server] Consumed one dart. Remaining=%d (forfeit=%s)"),
            DartsRemaining, bForfeit ? TEXT("true") : TEXT("false"));
 
-    // Optionally, notify server-side UI (if any) by calling the Blueprint event on server too
+   
     BP_OnDartsRemainingUpdated(DartsRemaining);
 
-    // If this was a forfeit, notify GameMode so it can advance the turn as needed.
+   
     if (bForfeit)
     {
-        if (AGameModeBase* GMBase = UGameplayStatics::GetGameMode(this))
+        if (AGameModeBase *GMBase = UGameplayStatics::GetGameMode(this))
         {
-            if (ADartGameMode* GM = Cast<ADartGameMode>(GMBase))
+            if (ADartGameMode *GM = Cast<ADartGameMode>(GMBase))
             {
-                if (APlayerController* PC = Cast<APlayerController>(GetController()))
+                if (APlayerController *PC = Cast<APlayerController>(GetController()))
                 {
                     GM->ForfeitDart(PC);
                 }
@@ -461,28 +434,28 @@ void ADartCharacter::Server_ConsumeDart_Implementation(bool bForfeit)
     }
 }
 
-// New: AddPoints public helper
+
 void ADartCharacter::AddPoints(int32 Points)
 {
     if (HasAuthority())
     {
-        // We're on the server already; apply immediately.
+        
         Server_AddRoundScore(Points);
     }
     else
     {
-        // Client: request server to add the points.
+        
         Server_RequestAddPoints(Points);
     }
 }
 
 void ADartCharacter::Server_RequestAddPoints_Implementation(int32 Points)
 {
-    // Server validates / applies
+    
     Server_AddRoundScore(Points);
 }
 
-// OnRep handlers — call Blueprint events so UMG updates
+
 void ADartCharacter::OnRep_DartsRemaining()
 {
     BP_OnDartsRemainingUpdated(DartsRemaining);
@@ -490,7 +463,7 @@ void ADartCharacter::OnRep_DartsRemaining()
     if (IsLocallyControlled())
     {
         GEngine->AddOnScreenDebugMessage(1, 3.f, FColor::Cyan,
-            FString::Printf(TEXT("Darts Remaining (replicated): %d"), DartsRemaining));
+                                         FString::Printf(TEXT("Darts Remaining (replicated): %d"), DartsRemaining));
     }
 }
 
@@ -501,7 +474,7 @@ void ADartCharacter::OnRep_PlayerScore()
     if (IsLocallyControlled())
     {
         GEngine->AddOnScreenDebugMessage(6, 3.f, FColor::Green,
-            FString::Printf(TEXT("Score (replicated): %d"), PlayerScore));
+                                         FString::Printf(TEXT("Score (replicated): %d"), PlayerScore));
     }
 }
 
@@ -512,7 +485,7 @@ void ADartCharacter::OnRep_RoundScore()
     if (IsLocallyControlled())
     {
         GEngine->AddOnScreenDebugMessage(7, 3.f, FColor::Yellow,
-            FString::Printf(TEXT("Round Score (replicated): %d"), RoundScore));
+                                         FString::Printf(TEXT("Round Score (replicated): %d"), RoundScore));
     }
 }
 
@@ -524,40 +497,30 @@ void ADartCharacter::OnRep_LastScoredPoints()
     if (IsLocallyControlled())
     {
         GEngine->AddOnScreenDebugMessage(8, 3.f, FColor::Orange,
-            FString::Printf(TEXT("Last Hit Points (replicated): %d"), LastScoredPoints));
+                                         FString::Printf(TEXT("Last Hit Points (replicated): %d"), LastScoredPoints));
     }
 }
 
-// New: replica notify for PlayerDisplayName
+
 void ADartCharacter::OnRep_PlayerDisplayName()
 {
-    // Let Blueprints update the UI when the name replicates
+    
     BP_OnPlayerNameUpdated(PlayerDisplayName);
 
     if (IsLocallyControlled())
     {
         GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Cyan,
-            FString::Printf(TEXT("Player name set: %s"), *PlayerDisplayName));
+                                         FString::Printf(TEXT("Player name set: %s"), *PlayerDisplayName));
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Server_AddRoundScore  (server only — called by DartGameMode::AddScore)
-//
-//  1. Accumulates Points into RoundScore (this round's running total).
-//  2. Also adds to PlayerScore (career/session total).
-//  3. When all 3 darts are used (DartsRemaining == 0), the round is over:
-//     RoundScore is reset to 0 ready for the next round.
-//     (DartsRemaining itself is reset by AdvanceTurn inside GameMode.)
-// ─────────────────────────────────────────────────────────────────────────────
 
 void ADartCharacter::Server_AddRoundScore(int32 Points)
 {
-    // This must only run on the server; GameMode already guarantees that.
+    
     check(HasAuthority());
 
-    // Safety: clamp incoming points to a reasonable per-hit range to avoid runaway totals
-    // caused by bugs or duplicated notifications. Adjust max per your game rules.
+    
     if (Points < 0)
     {
         UE_LOG(LogTemp, Warning, TEXT("[DartCharacter] Negative points received: %d. Clamping to 0."), Points);
@@ -570,59 +533,56 @@ void ADartCharacter::Server_AddRoundScore(int32 Points)
         Points = MaxPerHit;
     }
 
-    // Record last-scored points on the character (replicated to clients)
+    
     LastScoredPoints = Points;
 
-    // Accumulate into round total
-    RoundScore  += Points;
+    
+    RoundScore += Points;
 
-    // Also keep the lifetime score in sync
+    
     PlayerScore += Points;
 
     UE_LOG(LogTemp, Log,
-        TEXT("[DartCharacter] RoundScore=%d | PlayerScore=%d (added %d pts)"),
-        RoundScore, PlayerScore, Points);
+           TEXT("[DartCharacter] RoundScore=%d | PlayerScore=%d (added %d pts)"),
+           RoundScore, PlayerScore, Points);
 
-    // OnRep won't fire on the server itself, so broadcast the BP event manually
-    // so server-side widgets (listen-server host) also update.
+    
     BP_OnRoundScoreUpdated(RoundScore);
     BP_OnPlayerScoreUpdated(PlayerScore);
     BP_OnLastScoredUpdated(LastScoredPoints);
 
-    // If the player just threw their last dart, reset RoundScore for next round.
+    
     if (DartsRemaining <= 0)
     {
         UE_LOG(LogTemp, Log,
-            TEXT("[DartCharacter] Round complete — resetting RoundScore (was %d)"), RoundScore);
+               TEXT("[DartCharacter] Round complete — resetting RoundScore (was %d)"), RoundScore);
 
         RoundScore = 0;
 
-        // Notify again so HUD shows 0 at the start of the next round
+        
         BP_OnRoundScoreUpdated(RoundScore);
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+
 // OnRep_bIsMyTurn  (owning client)
-//
-//  Fires the appropriate Blueprint turn event so the HUD reacts immediately
-//  when the server flips the flag — no polling needed.
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 void ADartCharacter::OnRep_bIsMyTurn()
 {
     if (bIsMyTurn)
     {
-        // Grab our slot index from GameState for the BP event parameter.
+        
         int32 MySlot = 0;
-        if (AGameStateBase* GSBase = GetWorld() ? GetWorld()->GetGameState() : nullptr)
+        if (AGameStateBase *GSBase = GetWorld() ? GetWorld()->GetGameState() : nullptr)
         {
-            if (ADartGameState* GS = Cast<ADartGameState>(GSBase))
+            if (ADartGameState *GS = Cast<ADartGameState>(GSBase))
             {
-                if (AController* C = GetController())
+                if (AController *C = GetController())
                 {
                     MySlot = GS->GetSlotIndexForController(Cast<APlayerController>(C));
-                    if (MySlot < 0) MySlot = 0;
+                    if (MySlot < 0)
+                        MySlot = 0;
                 }
             }
         }
@@ -632,31 +592,31 @@ void ADartCharacter::OnRep_bIsMyTurn()
         if (IsLocallyControlled())
         {
             GEngine->AddOnScreenDebugMessage(9, 5.f, FColor::Green,
-                TEXT("YOUR TURN — aim and throw!"));
+                                             TEXT("YOUR TURN — aim and throw!"));
         }
     }
     else
     {
-        // We don't have a reliable slot here easily, pass 0 as a sentinel.
+        
         BP_OnTurnEnded(0);
 
         if (IsLocallyControlled())
         {
             GEngine->AddOnScreenDebugMessage(9, 5.f, FColor::Orange,
-                TEXT("Waiting for your turn…"));
+                                             TEXT("Waiting for your turn…"));
         }
     }
 }
 
 // Replication registration
-void ADartCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+void ADartCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty> &OutLifetimeProps) const
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
     DOREPLIFETIME(ADartCharacter, DartsRemaining);
     DOREPLIFETIME(ADartCharacter, PlayerScore);
     DOREPLIFETIME(ADartCharacter, RoundScore);
-    DOREPLIFETIME(ADartCharacter, LastScoredPoints); // new
+    DOREPLIFETIME(ADartCharacter, LastScoredPoints); 
     DOREPLIFETIME(ADartCharacter, bIsMyTurn);
 
     // New replicated fields
